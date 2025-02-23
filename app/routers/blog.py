@@ -145,4 +145,4 @@ async def delete_post(
     db.delete(post)
     db.commit()
 
-    return DeletePostResponse(message="Post has been deleted successfully", deleted_post=post_info) 
+    return DeletePostResponse(message="Post has been deleted successfully", deleted_item=post_info) 
