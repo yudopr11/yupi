@@ -1,8 +1,19 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from app.middleware.cors import init_cors
 from app.routers import auth, blog
-from app.utils.database import engine, get_db
+from app.utils.database import get_db
 from app.utils.superuser import create_superuser
+from app.core.config import settings
+
+app = FastAPI(
+    title=settings.API_TITLE,
+    description=settings.API_DESCRIPTION,
+    version=settings.API_VERSION,
+)
+
+# Initialize CORS
+init_cors(app)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -13,12 +24,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     pass
 
-app = FastAPI(
-    title="yupi - yudopr API",
-    description="API for many yudopr webapp projects",
-    version="1.0.0",
-    lifespan=lifespan
-)
+app.router.lifespan_context = lifespan
 
 # Include routers
 app.include_router(auth.router)
@@ -26,4 +32,4 @@ app.include_router(blog.router)
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to yupi - yudopr API"} 
+    return {"message": f"Welcome to {settings.API_TITLE}"} 

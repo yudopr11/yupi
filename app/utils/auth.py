@@ -5,12 +5,10 @@ import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from app.utils.config import get_settings
+from app.core.config import settings
 from app.utils.database import get_db
 from app.models.user import User
 from app.schemas.user import TokenData
-
-settings = get_settings()
 
 # JWT configuration
 SECRET_KEY = settings.SECRET_KEY
