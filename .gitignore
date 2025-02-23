@@ -1,8 +1,9 @@
 #Cursor
 .cursorrules
 .cursor/
-.sql
-.json
+*.sql
+*.json
+convert_json_to_sql.py
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
