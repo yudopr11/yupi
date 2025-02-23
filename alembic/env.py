@@ -10,7 +10,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.utils.config import get_settings
+from app.core.config import settings
 from app.utils.database import Base
 # Import semua model agar terdaftar di Base.metadata
 from app.models.user import User
@@ -20,7 +20,6 @@ from app.models.post import Post
 # access to the values within the .ini file in use.
 config = context.config
 
-settings = get_settings()
 # Override sqlalchemy.url dengan value dari settings (.env)
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
