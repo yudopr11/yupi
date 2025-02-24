@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     API_DESCRIPTION: str = "API for many yudopr webapp projects"
     API_VERSION: str = "1.0.0"
 
+    # OpenAI API Key
+    OPENAI_API_KEY: str = "sk-proj-1234567890"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
