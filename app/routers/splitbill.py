@@ -82,8 +82,13 @@ async def analyze_bill(
         Task: Create a detailed breakdown of individual payments including items, shared costs, and adjustments.
 
         1. Item Analysis:
-        - List each person's ordered items with exact names and individual prices
-        - Ensure prices match exactly as shown in the bill
+        - Pay careful attention to quantities (e.g., if bill shows "2 Nasi Goreng 110000", the unit price is 55000)
+        - For each item line:
+          * Extract the quantity (number at the start of line)
+          * Total price is shown in the amount column
+          * Calculate unit price = total price ÷ quantity
+          * List each item with its UNIT price (not the total price)
+        - Ensure prices match exactly as shown in the bill after quantity calculation
         - Do not include crossed-out prices (these are marketing displays, not actual prices)
 
         2. Currency Detection:
@@ -110,13 +115,14 @@ async def analyze_bill(
         - Divide equally among all individuals
 
         6. Final Calculations:
-        - Calculate individual_total = sum of person's items
+        - Calculate individual_total = sum of (unit_price × quantity) for each person's items
         - Calculate vat_share = proportional VAT based on individual_total
         - Calculate other_share = equal split of service charges and fees
         - Calculate discount_share = proportional or equal split of discounts
         - Calculate final_total = individual_total + vat_share + other_share - discount_share
 
         Important Notes:
+        - Always divide total item price by quantity to get the correct unit price
         - Crossed out prices are marketing displays, NOT discounts
         - All calculations must be mathematically precise
         - All monetary values must be in decimal format
@@ -127,7 +133,7 @@ async def analyze_bill(
         "split_details": {{
             "person_name": {{
                 "items": [
-                    {{"item": "exact_item_name", "price": decimal}}
+                    {{"item": "exact_item_name", "price": unit_price_after_quantity_calculation}}
                 ],
                 "individual_total": decimal,
                 "vat_share": decimal,
@@ -159,7 +165,7 @@ async def analyze_bill(
                     {"type": "image_url", "image_url": {"url": image_data_url}}
                 ]
             }],
-            max_tokens=1000
+            max_tokens=4000
         )
         # Clean the response and convert to JSON
         result = json.loads(response.choices[0].message.content.replace("```json", "").replace("```", "").strip())
