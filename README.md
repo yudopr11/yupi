@@ -206,6 +206,93 @@ DELETE /blog/admin/{post_id}
 }
 ```
 
+## Split Bill Endpoints
+
+### Analyze Bill Image
+```http
+POST /splitbill/analyze
+```
+**Required Headers:**
+- `Authorization: Bearer <token>`
+
+**Request Body (form-data):**
+- `image`: file (JPEG, PNG, JPG, or WebP, max 5MB)
+- `description`: string (Description of who ordered what)
+
+**Example Description:**
+```text
+Alice ordered:
+- Nasi Goreng Special
+- Es Teh Manis
+
+Bob ordered:
+- Mie Goreng
+- Juice Alpukat
+- Extra Kerupuk
+```
+
+**Response:** `200 OK`
+```json
+{
+    "split_details": {
+        "Alice": {
+            "items": [
+                {"item": "Nasi Goreng Special", "price": 25000},
+                {"item": "Es Teh Manis", "price": 5000}
+            ],
+            "individual_total": 30000,
+            "vat_share": 3300,
+            "other_share": 2000,
+            "discount_share": 1500,
+            "final_total": 33800
+        },
+        "Bob": {
+            "items": [
+                {"item": "Mie Goreng", "price": 23000},
+                {"item": "Juice Alpukat", "price": 15000},
+                {"item": "Extra Kerupuk", "price": 5000}
+            ],
+            "individual_total": 43000,
+            "vat_share": 4730,
+            "other_share": 2000,
+            "discount_share": 2150,
+            "final_total": 47580
+        }
+    },
+    "total_bill": 73000,
+    "total_vat": 8030,
+    "total_other": 4000,
+    "total_discount": 3650,
+    "currency": "IDR"
+}
+```
+
+**Error Responses:**
+
+### 413 File Too Large
+```json
+{
+    "detail": "File size too large. Maximum size allowed is 5MB"
+}
+```
+
+### 415 Unsupported Media Type
+```json
+{
+    "detail": "File type not allowed. Only image/jpeg, image/png, image/jpg, image/webp are allowed"
+}
+```
+
+### Notes:
+1. The API uses OpenAI's GPT-4o to analyze the bill image, AI can be wrong
+2. VAT (11%) is automatically applied for Indonesian Rupiah if not stated in the bill
+3. Service charges and other fees are split equally among all individuals
+4. Discounts are handled in two ways:
+   - Percentage-based discounts: Distributed proportionally based on order totals
+   - Fixed-amount discounts: Split equally among all individuals
+5. Crossed-out prices in the bill are ignored (considered marketing displays)
+6. All monetary calculations are rounded to 2 decimal places
+
 ## Error Responses
 
 ### 401 Unauthorized
