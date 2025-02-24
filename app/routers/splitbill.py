@@ -48,6 +48,7 @@ def validate_image(file: UploadFile) -> None:
     "/analyze",
     response_model=BillAnalysisResponse,
     responses={
+        400: {"model": ErrorDetail, "description": "Invalid bill image"},
         401: {"model": ErrorDetail, "description": "Not authenticated"},
         413: {"model": ErrorDetail, "description": "File too large"},
         415: {"model": ErrorDetail, "description": "Unsupported file type"},
@@ -84,11 +85,30 @@ async def analyze_bill(
                 {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Describe the bill image in detail"},
+                    {
+                        "type": "text", 
+                        "text": """Analyze this image and determine if it's a bill/receipt:
+Task:
+1. First, determine if the image is a bill/receipt
+2. If NOT a bill/receipt, output exactly "0"
+3. If it IS a bill/receipt, provide a detailed description
+Do not add any explanatory text or labels - just output the raw information."""
+                    },
                     {"type": "image_url", "image_url": {"url": image_data_url}}
                 ]
             }]
         ).choices[0].message.content
+
+        try:
+            if float(image_description) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid bill image"
+                )
+        except ValueError:
+            # If conversion fails, it means image_description is not a number
+            # so we can proceed with the analysis
+            pass
         
         # Generate prompt
         prompt = f'''
