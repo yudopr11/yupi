@@ -1,346 +1,161 @@
-# yupi API Documentation
+# Yupi - yudopr API
 
-A FastAPI-based API for blog management with authentication.
+A FastAPI-based API service that provides various utility endpoints including blog management, bill splitting analysis, and user authentication.
 
-## Authentication Endpoints
+## Features
 
-### Register New User (Superuser Only)
-```http
-POST /auth/register
-```
-**Required Headers:**
-- `Authorization: Bearer <token>` (Superuser token required)
+- **Authentication System**
+  - JWT-based authentication
+  - User registration and management
+  - Role-based access control (User/Superuser)
 
-**Request Body:**
-```json
-{
-    "username": "johndoe",
-    "email": "john@example.com",
-    "password": "strongpassword123",
-    "is_superuser": false
-}
-```
+- **Blog Management**
+  - Create, read, update, delete blog posts
+  - Markdown content support
+  - Tag system
+  - Reading time calculation
+  - Search functionality
 
-**Response:** `201 Created`
-```json
-{
-    "id": 1,
-    "uuid": "123e4567-e89b-12d3-a456-426614174000",
-    "username": "johndoe",
-    "email": "john@example.com",
-    "is_superuser": false,
-    "created_at": "2024-03-20T10:00:00"
-}
-```
+- **Bill Splitting Analysis**
+  - Upload bill images for analysis
+  - AI-powered bill recognition using LLM
+  - Automatic item and price detection
+  - Smart cost distribution
+  - VAT and service charge handling
 
-### Login
-```http
-POST /auth/login
-```
-**Request Body (form-data):**
-- `username`: string
-- `password`: string
+## Tech Stack
 
-**Response:** `200 OK`
-```json
-{
-    "access_token": "eyJhbGciOiJIUzI1...",
-    "token_type": "bearer"
-}
-```
+- **Backend**: FastAPI (Python 3.8+)
+- **Database**: PostgreSQL
+- **ORM**: SQLAlchemy
+- **Authentication**: JWT (JSON Web Tokens)
+- **AI Integration**: OpenAI LLMs
+- **Migration**: Alembic
+- **Deployment**: Railway
 
-### Delete User (Superuser Only)
-```http
-DELETE /auth/users/{user_id}
-```
-**Required Headers:**
-- `Authorization: Bearer <token>` (Superuser token required)
+## Prerequisites
 
-**Response:** `200 OK`
-```json
-{
-    "message": "User has been deleted successfully",
-    "deleted_user": {
-        "id": 1,
-        "username": "johndoe",
-        "uuid": "123e4567-e89b-12d3-a456-426614174000"
-    }
-}
+- Python 3.8 or higher
+- PostgreSQL
+- OpenAI API key
+- Git
+
+## Installation
+
+1. **Clone the Repository**
+```bash
+git clone https://github.com/yourusername/yupi.git
+cd yupi
 ```
 
-## Blog Endpoints
-
-### Create New Post
-```http
-POST /blog
-```
-**Required Headers:**
-- `Authorization: Bearer <token>`
-
-**Request Body:**
-```json
-{
-    "title": "My First Blog Post",
-    "excerpt": "A brief introduction to my blog post",
-    "content": "# Introduction\n\nThis is my first blog post...",
-    "tags": ["tech", "programming"],
-    "published": false
-}
+2. **Create Virtual Environment**
+```bash
+python -m venv venv
+# For Windows
+venv\Scripts\activate
+# For Unix or MacOS
+source venv/bin/activate
 ```
 
-**Response:** `201 Created`
-```json
-{
-    "id": 1,
-    "uuid": "123e4567-e89b-12d3-a456-426614174000",
-    "title": "My First Blog Post",
-    "excerpt": "A brief introduction to my blog post",
-    "content": "# Introduction\n\nThis is my first blog post...",
-    "slug": "my-first-blog-post",
-    "reading_time": 5,
-    "tags": ["tech", "programming"],
-    "published": false,
-    "created_at": "2024-03-20T10:00:00",
-    "updated_at": "2024-03-20T10:00:00"
-}
+3. **Install Dependencies**
+```bash
+pip install -r requirements.txt
 ```
 
-### Get All Published Posts
-```http
-GET /blog
-```
-**Query Parameters:**
-- `skip`: int (default: 0) - Pagination offset
-- `limit`: int (default: 3) - Posts per page
-- `search`: string (optional) - Search in title, excerpt, and content
+4. **Environment Setup**
 
-**Response:** `200 OK`
-```json
-[
-    {
-        "id": 1,
-        "uuid": "123e4567-e89b-12d3-a456-426614174000",
-        "title": "My First Blog Post",
-        "excerpt": "A brief introduction to my blog post",
-        "slug": "my-first-blog-post",
-        "reading_time": 5,
-        "tags": ["tech", "programming"],
-        "published": true
-    }
-]
+Copy the `.env.example` file to create your `.env`:
+```bash
+cp .env.example .env
 ```
 
-### Get Post by Slug
-```http
-GET /blog/{slug}
+Then update the values in `.env` with your actual configuration:
+```env
+# Database settings
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/yupi_db
+
+# JWT settings
+SECRET_KEY=your-super-secret-key-that-should-be-very-long-and-random
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Superuser credentials
+SUPERUSER_USERNAME=admin
+SUPERUSER_EMAIL=admin@example.com
+SUPERUSER_PASSWORD=admin123
+
+# OpenAI API Key
+OPENAI_API_KEY=your_openai_api_key
+
+# API Info
+API_TITLE=yupi - yudopr API
+API_DESCRIPTION=API for many yudopr webapp projects
+API_VERSION=1.0.0
 ```
 
-**Response:** `200 OK`
-```json
-{
-    "id": 1,
-    "uuid": "123e4567-e89b-12d3-a456-426614174000",
-    "title": "My First Blog Post",
-    "excerpt": "A brief introduction to my blog post",
-    "content": "# Introduction\n\nThis is my first blog post...",
-    "slug": "my-first-blog-post",
-    "reading_time": 5,
-    "tags": ["tech", "programming"],
-    "published": true,
-    "created_at": "2024-03-20T10:00:00",
-    "updated_at": "2024-03-20T10:00:00"
-}
+Important: Make sure to:
+- Never commit your `.env` file to version control
+- Use strong, unique values for SECRET_KEY and passwords in production
+- Keep your OpenAI API key secure
+- Update the CORS settings if needed for your frontend
+
+5. **Database Setup**
+
+Create a PostgreSQL database and run migrations:
+```bash
+# Create database
+createdb yupi_db
+
+# Run migrations
+alembic upgrade head
 ```
 
-### Update Post (Author or Superuser Only)
-```http
-PUT /blog/admin/{post_id}
-```
-**Required Headers:**
-- `Authorization: Bearer <token>` (Post author or superuser)
+## Running Locally
 
-**Request Body:**
-```json
-{
-    "title": "Updated Blog Post",
-    "excerpt": "Updated brief introduction",
-    "content": "# Updated Content\n\nThis is the updated content...",
-    "tags": ["tech", "tutorial"],
-    "published": true
-}
+1. **Start the Development Server**
+```bash
+uvicorn app.main:app --reload --port 8000
 ```
 
-**Response:** `200 OK`
-```json
-{
-    "id": 1,
-    "uuid": "123e4567-e89b-12d3-a456-426614174000",
-    "title": "Updated Blog Post",
-    "excerpt": "Updated brief introduction",
-    "content": "# Updated Content\n\nThis is the updated content...",
-    "slug": "updated-blog-post",
-    "reading_time": 5,
-    "tags": ["tech", "tutorial"],
-    "published": true,
-    "created_at": "2024-03-20T10:00:00",
-    "updated_at": "2024-03-20T10:30:00"
-}
+2. **Access the API Documentation**
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+## Deployment to Railway
+
+1. **Railway Setup**
+
+- Create an account on [Railway](https://railway.app)
+- Install Railway CLI:
+```bash
+npm i -g @railway/cli
 ```
 
-### Delete Post (Superuser Only)
-```http
-DELETE /blog/admin/{post_id}
-```
-**Required Headers:**
-- `Authorization: Bearer <token>` (Superuser token required)
-
-**Response:** `200 OK`
-```json
-{
-    "message": "Post has been deleted successfully",
-    "deleted_post": {
-        "id": 1,
-        "title": "Updated Blog Post",
-        "uuid": "123e4567-e89b-12d3-a456-426614174000"
-    }
-}
+2. **Login to Railway**
+```bash
+railway login
 ```
 
-## Split Bill Endpoints
-
-### Analyze Bill Image
-```http
-POST /splitbill/analyze
-```
-**Required Headers:**
-- `Authorization: Bearer <token>`
-
-**Request Body (form-data):**
-- `image`: file (JPEG, PNG, JPG, or WebP, max 5MB)
-- `description`: string (Description of who ordered what)
-
-**Example Description:**
-```text
-Alice ordered:
-- 2 Nasi Goreng Special
-- 1 Es Teh Manis
-
-Bob ordered:
-- 1 Mie Goreng
-- 2 Juice Alpukat
-- 1 Extra Kerupuk
+3. **Initialize Railway Project**
+```bash
+railway init
 ```
 
-**Response:** `200 OK`
-```json
-{
-    "split_details": {
-        "Alice": {
-            "items": [
-                {"item": "Nasi Goreng Special", "price": 55000},
-                {"item": "Es Teh Manis", "price": 5000}
-            ],
-            "individual_total": 115000,
-            "vat_share": 12650,
-            "other_share": 2000,
-            "discount_share": 5750,
-            "final_total": 123900
-        },
-        "Bob": {
-            "items": [
-                {"item": "Mie Goreng", "price": 23000},
-                {"item": "Juice Alpukat", "price": 15000},
-                {"item": "Extra Kerupuk", "price": 5000}
-            ],
-            "individual_total": 43000,
-            "vat_share": 4730,
-            "other_share": 2000,
-            "discount_share": 2150,
-            "final_total": 47580
-        }
-    },
-    "total_bill": 171480,
-    "total_vat": 17380,
-    "total_other": 4000,
-    "total_discount": 7900,
-    "currency": "IDR"
-}
+4. **Configure Environment Variables**
+- Go to Railway Dashboard
+- Add all environment variables from `.env`
+- Make sure to update DATABASE_URL with Railway's PostgreSQL URL
+
+5. **Deploy**
+```bash
+railway up
 ```
 
-**Error Responses:**
+## License
 
-### 413 File Too Large
-```json
-{
-    "detail": "File size too large. Maximum size allowed is 5MB"
-}
-```
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-### 415 Unsupported Media Type
-```json
-{
-    "detail": "File type not allowed. Only image/jpeg, image/png, image/jpg, image/webp are allowed"
-}
-```
+## Acknowledgments
 
-### Notes:
-1. The API uses OpenAI's models to analyze the bill image
-2. Item Quantity Handling:
-   - Quantities are automatically detected (e.g., "2 Nasi Goreng 110000" means 2 items at 55000 each)
-   - Unit prices are calculated by dividing total price by quantity
-   - Individual items are listed with their unit prices, not total prices
-3. Bill Summary Section:
-   - If the bill has a summary section, those exact values are used
-   - Summary typically includes: Items Total, VAT, Service Charge, and Final Total
-   - These values are used as-is rather than being recalculated
-4. VAT Calculation:
-   - Uses exact VAT amount if shown in bill summary
-   - If not shown: 11% for Indonesian Rupiah, or as stated for other currencies
-   - Calculated proportionally based on individual order totals
-5. Service Charges:
-   - Uses exact amount if shown in summary section
-   - Split equally among all individuals
-6. Discounts are handled in two ways:
-   - Percentage-based discounts: Distributed proportionally based on order totals
-   - Fixed-amount discounts: Split equally among all individuals
-7. Important:
-   - Crossed-out prices in the bill are ignored (considered marketing displays)
-   - All monetary calculations are rounded to 2 decimal places
-   - The sum of all individual shares always equals the total bill
-   - Quantities are always considered when calculating unit prices
-
-## Error Responses
-
-### 401 Unauthorized
-```json
-{
-    "detail": "Not authenticated"
-}
-```
-
-### 403 Forbidden
-```json
-{
-    "detail": "Only superuser can perform this action"
-}
-```
-
-### 404 Not Found
-```json
-{
-    "detail": "Post not found"
-}
-```
-
-### 422 Validation Error
-```json
-{
-    "detail": [
-        {
-            "loc": ["body", "field_name"],
-            "msg": "field required",
-            "type": "value_error.missing"
-        }
-    ]
-}
-``` 
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Railway](https://railway.app)
