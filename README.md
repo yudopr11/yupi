@@ -222,13 +222,13 @@ POST /splitbill/analyze
 **Example Description:**
 ```text
 Alice ordered:
-- Nasi Goreng Special
-- Es Teh Manis
+- 2 Nasi Goreng Special
+- 1 Es Teh Manis
 
 Bob ordered:
-- Mie Goreng
-- Juice Alpukat
-- Extra Kerupuk
+- 1 Mie Goreng
+- 2 Juice Alpukat
+- 1 Extra Kerupuk
 ```
 
 **Response:** `200 OK`
@@ -237,14 +237,14 @@ Bob ordered:
     "split_details": {
         "Alice": {
             "items": [
-                {"item": "Nasi Goreng Special", "price": 25000},
+                {"item": "Nasi Goreng Special", "price": 55000},
                 {"item": "Es Teh Manis", "price": 5000}
             ],
-            "individual_total": 30000,
-            "vat_share": 3300,
+            "individual_total": 115000,
+            "vat_share": 12650,
             "other_share": 2000,
-            "discount_share": 1500,
-            "final_total": 33800
+            "discount_share": 5750,
+            "final_total": 123900
         },
         "Bob": {
             "items": [
@@ -259,10 +259,10 @@ Bob ordered:
             "final_total": 47580
         }
     },
-    "total_bill": 73000,
-    "total_vat": 8030,
+    "total_bill": 171480,
+    "total_vat": 17380,
     "total_other": 4000,
-    "total_discount": 3650,
+    "total_discount": 7900,
     "currency": "IDR"
 }
 ```
@@ -284,14 +284,30 @@ Bob ordered:
 ```
 
 ### Notes:
-1. The API uses OpenAI's GPT-4o to analyze the bill image, AI can be wrong
-2. VAT (11%) is automatically applied for Indonesian Rupiah if not stated in the bill
-3. Service charges and other fees are split equally among all individuals
-4. Discounts are handled in two ways:
+1. The API uses OpenAI's models to analyze the bill image
+2. Item Quantity Handling:
+   - Quantities are automatically detected (e.g., "2 Nasi Goreng 110000" means 2 items at 55000 each)
+   - Unit prices are calculated by dividing total price by quantity
+   - Individual items are listed with their unit prices, not total prices
+3. Bill Summary Section:
+   - If the bill has a summary section, those exact values are used
+   - Summary typically includes: Items Total, VAT, Service Charge, and Final Total
+   - These values are used as-is rather than being recalculated
+4. VAT Calculation:
+   - Uses exact VAT amount if shown in bill summary
+   - If not shown: 11% for Indonesian Rupiah, or as stated for other currencies
+   - Calculated proportionally based on individual order totals
+5. Service Charges:
+   - Uses exact amount if shown in summary section
+   - Split equally among all individuals
+6. Discounts are handled in two ways:
    - Percentage-based discounts: Distributed proportionally based on order totals
    - Fixed-amount discounts: Split equally among all individuals
-5. Crossed-out prices in the bill are ignored (considered marketing displays)
-6. All monetary calculations are rounded to 2 decimal places
+7. Important:
+   - Crossed-out prices in the bill are ignored (considered marketing displays)
+   - All monetary calculations are rounded to 2 decimal places
+   - The sum of all individual shares always equals the total bill
+   - Quantities are always considered when calculating unit prices
 
 ## Error Responses
 

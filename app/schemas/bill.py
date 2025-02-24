@@ -17,7 +17,8 @@ class PersonBillDetails(BaseModel):
 class BillAnalysisResponse(BaseModel):
     split_details: Dict[str, PersonBillDetails]
     total_bill: Decimal
-    total_vat: Decimal
-    total_other: Decimal
-    total_discount: Decimal
+    subtotal: Decimal
+    subtotal_vat: Decimal
+    subtotal_other: Decimal
+    subtotal_discount: Decimal
     currency: str 

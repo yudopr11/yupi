@@ -75,8 +75,27 @@ async def analyze_bill(
 
         # Initialize OpenAI client with API key from settings
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # Get image description
+        image_description = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            messages=[
+                {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe the bill image in detail"},
+                    {"type": "image_url", "image_url": {"url": image_data_url}}
+                ]
+            }]
+        ).choices[0].message.content
+        
+        # Generate prompt
         prompt = f'''
-        You are analyzing a bill image with the following order details:
+        You are analyzing a bill below 
+        {image_description}
+        
+        with the following order details description:
         {description}
 
         Task: Create a detailed breakdown of individual payments including items, shared costs, and adjustments.
@@ -96,8 +115,7 @@ async def analyze_bill(
         - Format all monetary values consistently using the detected currency
 
         3. Tax (VAT) Calculation:
-        - For Rupiah currency: Apply 11% VAT if not explicitly stated
-        - For other currencies: Use the VAT rate shown in the bill
+        - Use the VAT rate shown in the bill or from order details description
         - Calculate individual VAT shares proportionally based on each person's order total
         - Round VAT calculations to 2 decimal places
 
@@ -114,12 +132,19 @@ async def analyze_bill(
         For fixed-amount discounts (e.g., "5000 off delivery"):
         - Divide equally among all individuals
 
-        6. Final Calculations:
+        6. Individual Final Calculations:
         - Calculate individual_total = sum of (unit_price × quantity) for each person's items
         - Calculate vat_share = proportional VAT based on individual_total
         - Calculate other_share = equal split of service charges and fees
         - Calculate discount_share = proportional or equal split of discounts
         - Calculate final_total = individual_total + vat_share + other_share - discount_share
+        
+        7. Total Calculations:
+        - Calculate total_bill = sum of final_total for all individuals
+        - Calculate subtotal = sum of individual_total for all individuals
+        - Calculate subtotal_vat = sum of vat_share for all individuals
+        - Calculate subtotal_other = sum of other_share for all individuals
+        - Calculate subtotal_discount = sum of discount_share for all individuals
 
         Important Notes:
         - Always divide total item price by quantity to get the correct unit price
@@ -133,7 +158,7 @@ async def analyze_bill(
         "split_details": {{
             "person_name": {{
                 "items": [
-                    {{"item": "exact_item_name", "price": unit_price_after_quantity_calculation}}
+                    {{"item": "exact_item_name_from_bill", "price": unit_price_after_quantity_calculation}}
                 ],
                 "individual_total": decimal,
                 "vat_share": decimal,
@@ -143,29 +168,24 @@ async def analyze_bill(
             }}
         }},
         "total_bill": decimal,
-        "total_vat": decimal,
-        "total_other": decimal,
-        "total_discount": decimal,
+        "subtotal": decimal,
+        "subtotal_vat": decimal,
+        "subtotal_other": decimal,
+        "subtotal_discount": decimal,
         "currency": "currency_code"
         }}
 
         Ensure the response is valid JSON with no additional text or explanations.
         '''
+        
         response = client.chat.completions.create(
-            model="gpt-4o",
-            temperature=0,
-            messages=[{
-                "role": "system",
-                "content": "You are a helpful assistant that analyzes bills and splits the bill according to the description of who ordered what."
-                },
+            model="o1-mini",
+            temperature=1,
+            messages=[
                 {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_data_url}}
-                ]
-            }],
-            max_tokens=4000
+                "content":  prompt
+            }]
         )
         # Clean the response and convert to JSON
         result = json.loads(response.choices[0].message.content.replace("```json", "").replace("```", "").strip())
