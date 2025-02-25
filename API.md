@@ -48,6 +48,43 @@ POST /auth/login
     "token_type": "bearer"
 }
 ```
+**Cookies Set:**
+- `refresh_token`: HTTP-only, Secure, SameSite=Lax cookie containing the refresh token (valid for 30 days)
+
+### Refresh Token
+```http
+POST /auth/refresh
+```
+**Required Cookies:**
+- `refresh_token`: The refresh token cookie set during login
+
+**Response:** `200 OK`
+```json
+{
+    "access_token": "eyJhbGciOiJIUzI1...",
+    "token_type": "bearer"
+}
+```
+
+### Logout
+```http
+POST /auth/logout
+```
+**Response:** `200 OK`
+```json
+{
+    "message": "Successfully logged out"
+}
+```
+**Effects:**
+- Clears the refresh token cookie
+
+**Security Features:**
+- Refresh token is stored in HTTP-only cookie (not accessible via JavaScript)
+- Cookie is marked as Secure (only sent over HTTPS)
+- SameSite=Lax protection against CSRF attacks
+- Automatic cookie expiration after configured period (30 days)
+- Refresh token is cleared on logout or authentication failure
 
 ### Delete User (Superuser Only)
 ```http

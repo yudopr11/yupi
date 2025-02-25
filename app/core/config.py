@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-super-secret-key-that-should-be-very-long-and-random"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Superuser credentials
     SUPERUSER_USERNAME: str = "admin"

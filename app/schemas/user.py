@@ -30,6 +30,12 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+class TokenData(BaseModel):
+    """
+    Schema for token payload data
+    """
+    username: Optional[str] = Field(default=None, description="Username stored in token")
+
 class Token(BaseModel):
     """
     Schema for authentication token response
@@ -43,11 +49,13 @@ class Token(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(..., description="Token type (always 'bearer')", example="bearer")
 
-class TokenData(BaseModel):
+class TokenPayload(BaseModel):
     """
     Schema for token payload data
     """
-    username: Optional[str] = Field(default=None, description="Username stored in token")
+    sub: str = Field(..., description="Subject of the token")
+    exp: int = Field(..., description="Expiration time of the token")
+    type: str = Field(..., description="Type of the token")
 
 class DeletedUserInfo(DeletedItemInfo):
     """

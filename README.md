@@ -5,9 +5,12 @@ A FastAPI-based API service that provides various utility endpoints including bl
 ## Features
 
 - **Authentication System**
-  - JWT-based authentication
+  - JWT-based authentication with secure refresh token handling
+  - HTTP-only cookie-based refresh tokens
   - User registration and management
   - Role-based access control (User/Superuser)
+  - Automatic token refresh
+  - Secure logout mechanism
 
 - **Blog Management**
   - Create, read, update, delete blog posts
@@ -77,7 +80,8 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5433/yupi_db
 # JWT settings
 SECRET_KEY=your-super-secret-key-that-should-be-very-long-and-random
 ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+ACCESS_TOKEN_EXPIRE_MINUTES=30  # Short-lived access tokens
+REFRESH_TOKEN_EXPIRE_DAYS=30    # Long-lived refresh tokens in HTTP-only cookies
 
 # Superuser credentials
 SUPERUSER_USERNAME=admin
@@ -98,6 +102,10 @@ Important: Make sure to:
 - Use strong, unique values for SECRET_KEY and passwords in production
 - Keep your OpenAI API key secure
 - Update the CORS settings if needed for your frontend
+- Adjust token expiration times based on your security requirements:
+  - ACCESS_TOKEN_EXPIRE_MINUTES: Short-lived tokens (e.g., 30 minutes)
+  - REFRESH_TOKEN_EXPIRE_DAYS: Long-lived tokens (e.g., 30 days)
+- Enable HTTPS in production for secure cookie handling
 
 5. **Database Setup**
 
@@ -159,3 +167,58 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Railway](https://railway.app)
+
+### Login
+```http
+POST /auth/login
+```
+**Request Body (form-data):**
+- `username`: string
+- `password`: string
+
+**Response:** `200 OK`
+```json
+{
+    "access_token": "eyJhbGciOiJIUzI1...",
+    "token_type": "bearer"
+}
+```
+**Cookies Set:**
+- `refresh_token`: HTTP-only, Secure, SameSite=Lax cookie containing the refresh token
+
+### Refresh Token
+```http
+POST /auth/refresh
+```
+**Required Cookies:**
+- `refresh_token`: The refresh token cookie set during login
+
+**Response:** `200 OK`
+```json
+{
+    "access_token": "eyJhbGciOiJIUzI1...",
+    "token_type": "bearer"
+}
+```
+
+### Logout
+```http
+POST /auth/logout
+```
+**Response:** `200 OK`
+```json
+{
+    "message": "Successfully logged out"
+}
+```
+**Effects:**
+- Clears the refresh token cookie
+
+**Security Features:**
+- Refresh token is stored in HTTP-only cookie (not accessible via JavaScript)
+- Cookie is marked as Secure (only sent over HTTPS)
+- SameSite=Lax protection against CSRF attacks
+- Automatic cookie expiration after configured period
+- Refresh token is cleared on logout or authentication failure
+
+### Delete User (Superuser Only)
