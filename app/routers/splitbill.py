@@ -211,7 +211,11 @@ Do not add any explanatory text or labels - just output the raw information."""
         result = json.loads(response.choices[0].message.content.replace("```json", "").replace("```", "").strip())
         return BillAnalysisResponse(**result)
     
+    except HTTPException as http_ex:
+        # Re-raise HTTP exceptions (like 415, 413, etc.) without modification
+        raise http_ex
     except Exception as e:
+        # Handle other unexpected errors
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while analyzing the bill: {str(e)}"
