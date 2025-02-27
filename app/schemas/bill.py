@@ -14,6 +14,10 @@ class PersonBillDetails(BaseModel):
     discount_share: Decimal
     final_total: Decimal
 
+class TokenCount(BaseModel):
+    image: int
+    analysis: int
+
 class BillAnalysisResponse(BaseModel):
     split_details: Dict[str, PersonBillDetails]
     total_bill: Decimal
@@ -21,4 +25,6 @@ class BillAnalysisResponse(BaseModel):
     subtotal_vat: Decimal
     subtotal_other: Decimal
     subtotal_discount: Decimal
-    currency: str 
+    currency: str
+    image_description: str
+    token_count: TokenCount 
