@@ -208,7 +208,7 @@ Ensure the response is valid JSON with no additional text or explanations.
 '''
         
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="o1-mini",
             temperature=1,
             messages=[
                 {
