@@ -13,6 +13,7 @@ from app.schemas.error import (
 )
 from app.utils.slug import generate_slug
 from app.utils.reading_time import calculate_reading_time
+from sqlalchemy import or_, func
 
 router = APIRouter(prefix="/blog", tags=["Blog"])
 
@@ -52,20 +53,32 @@ async def get_posts(
     skip: int = 0,
     limit: int = 3,
     search: str = None,
+    tag: str = None,
     db: Session = Depends(get_db)
 ):
     """
     Get all published posts
     - Optional search in title, excerpt, and content
+    - Optional filter by tag
     - Default limit: 3 posts per page
     """
     query = db.query(Post).filter(Post.published == True)
+    
     if search:
         query = query.filter(
-            Post.title.ilike(f"%{search}%") |
-            Post.excerpt.ilike(f"%{search}%") |
-            Post.content.ilike(f"%{search}%")
+            or_(
+                Post.title.ilike(f"%{search}%"),
+                Post.excerpt.ilike(f"%{search}%"),
+                Post.content.ilike(f"%{search}%"),
+                # Search within the tags array
+                func.array_to_string(Post.tags, ',').ilike(f"%{search}%")
+            )
         )
+    
+    if tag:
+        # Filter posts that have the specified tag using PostgreSQL array operations with case-insensitive matching
+        # Using the ANY operator with ILIKE for case-insensitive comparison
+        query = query.filter(func.lower(func.array_to_string(Post.tags, ',', '')).contains(func.lower(tag)))
     
     return query.order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
 
