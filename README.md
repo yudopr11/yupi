@@ -16,8 +16,11 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - Create, read, update, delete blog posts
   - Markdown content support
   - Tag system
+    - Filter posts by specific tag (case-insensitive)
+    - Search within post tags
+  - Author information included in responses
   - Reading time calculation
-  - Search functionality
+  - Search functionality across title, excerpt, content, and tags
 
 - **Bill Splitting Analysis**
   - Upload bill images for analysis
