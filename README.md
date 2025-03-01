@@ -166,7 +166,8 @@ railway up
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
 
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Railway](https://railway.app)
+## Acknowledgments
+- Created by [yudopr](https://github.com/yudopr11)
+- Built with [FastAPI](https://fastapi.tiangolo.com/) and [Python](https://python.org/)
+- Deploy with [Railway](https://railway.app)
