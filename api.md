@@ -207,9 +207,10 @@ Create a new blog post.
 
 **Notes**:
 - If `excerpt` is not provided, it will be automatically generated using AI
-- If `tags` are not provided, they will be automatically generated using AI
+- If `tags` are not provided, they will be automatically generated using AI based on the content and existing tags in the system
 - Post reading time is automatically calculated
 - URL-friendly slug is automatically generated from the title
+- Post embeddings for vector search are generated using only the title (weighted) and excerpt for optimal search performance
 
 **Success Response**: `201 Created`
 ```json
@@ -253,6 +254,7 @@ Get all published blog posts. Supports pagination and filtering.
 
 **Note:**
 - When `search` is provided and `use_rag=true`, the API uses OpenAI embeddings for semantic search, which ranks results by relevance rather than keyword matching
+- Embeddings are generated using only the title (weighted) and excerpt for focused semantic matching
 - Semantic search is optimized with tiktoken tokenization for better results with short queries
 - Vector search performs query expansion for very short queries to improve relevance
 - The `published` filter is only available to authenticated users. For non-authenticated users, only published posts are returned.
@@ -320,15 +322,17 @@ Update a blog post by ID (author or superuser only).
   "title": "string",
   "content": "string",
   "excerpt": "string (optional)",
-  "tags": ["string"],
+  "tags": ["string"] (optional),
   "published": true
 }
 ```
 
 **Notes**:
 - If `excerpt` is not provided or empty, it will be automatically regenerated using AI
+- If `tags` are not provided or empty, they will be automatically generated using AI based on the content and existing tags in the system
 - Slug is automatically updated if title changes
 - Reading time is recalculated if content changes
+- Post embeddings are regenerated if title or excerpt changes, using only these fields for focused semantic search
 
 **Success Response**: `200 OK`
 ```json
@@ -388,4 +392,71 @@ Delete a blog post by ID (superuser only).
 
 ## Bill Splitting
 
-*Detailed documentation for Bill Splitting endpoints to be added* 
+### Analyze Bill
+
+Analyze a bill image to extract items, prices, and suggest a fair split.
+
+**URL**: `/splitbill/analyze`  
+**Method**: `POST`  
+**Auth required**: Yes (Any authenticated user)  
+**Content-Type**: `multipart/form-data`  
+**Status Code**: `200 OK`
+
+**Form Parameters**:
+- `image`: File - The bill image to analyze (JPEG, PNG, WebP, max 5MB)
+- `description`: String - A description of the bill or context
+- `image_description`: String (optional) - Additional context about the image
+
+**Notes**:
+- The image will be analyzed using AI to extract items, prices, and other relevant information
+- The system will suggest a fair split based on the extracted information
+- Supported image types: JPEG, PNG, WebP
+- Maximum file size: 5MB
+
+**Success Response**: `200 OK`
+```json
+{
+  "items": [
+    {
+      "name": "string",
+      "price": 0.0,
+      "quantity": 0
+    }
+  ],
+  "subtotal": 0.0,
+  "tax": 0.0,
+  "tip": 0.0,
+  "total": 0.0,
+  "currency": "string",
+  "date": "2023-01-01",
+  "restaurant": "string",
+  "split_suggestions": [
+    {
+      "strategy": "string",
+      "description": "string",
+      "splits": [
+        {
+          "person": "string",
+          "amount": 0.0,
+          "items": [
+            {
+              "name": "string",
+              "price": 0.0,
+              "quantity": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "raw_text": "string"
+}
+```
+
+**Error Responses**:
+- `400 Bad Request` - Invalid bill image
+- `401 Unauthorized` - Not authenticated
+- `413 Request Entity Too Large` - File too large
+- `415 Unsupported Media Type` - Unsupported file type
+- `422 Unprocessable Entity` - Validation error
+- `500 Internal Server Error` - Error analyzing bill 
