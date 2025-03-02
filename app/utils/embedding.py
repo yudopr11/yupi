@@ -1,6 +1,5 @@
 from openai import OpenAI
 from typing import List, Dict, Any, Optional
-import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.core.config import settings
