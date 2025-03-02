@@ -129,38 +129,22 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 2. **Access the API Documentation**
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+    - Swagger UI: http://localhost:8000/docs
+    - ReDoc: http://localhost:8000/redoc
 
-## Deployment to Railway
+## Deployment
 
-1. **Railway Setup**
+### Railway
 
-- Create an account on [Railway](https://railway.app)
-- Install Railway CLI:
-```bash
-npm i -g @railway/cli
-```
+Deploying to Railway is simple:
 
-2. **Login to Railway**
-```bash
-railway login
-```
+1. Create an account on [Railway](https://railway.app)
+2. Click "New Project" on the Railway dashboard or "New Services" inside Railway Project
+3. Select "Deploy from GitHub repo"
+4. Choose your cloned repository
+5. Railway will automatically detect the Vite configuration and deploy your site
 
-3. **Initialize Railway Project**
-```bash
-railway init
-```
-
-4. **Configure Environment Variables**
-- Go to Railway Dashboard
-- Add all environment variables from `.env`
-- Make sure to update DATABASE_URL with Railway's PostgreSQL URL
-
-5. **Deploy**
-```bash
-railway up
-```
+That's it! Railway will automatically build and deploy your application. If needed, you can add environment variables in your project settings.
 
 ## License
 
