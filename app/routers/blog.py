@@ -258,6 +258,7 @@ async def update_post(
     Update post by ID (author or superuser only)
     
     - Automatically regenerates post excerpt using AI if not provided
+    - Automatically generates tags using AI if none provided
     - Updates slug when title changes
     - Recalculates reading time when content changes
     - Updates embedding vectors for semantic search
@@ -272,22 +273,40 @@ async def update_post(
     # Convert to dict for easier manipulation
     post_data = post_update.model_dump()
     
-    # Check if we need to generate an excerpt
+    # Check if we need to generate an excerpt or tags
     need_excerpt = not post_data.get("excerpt") or post_data["excerpt"].strip() == ""
+    need_tags = not post_data.get("tags") or len(post_data.get("tags", [])) == 0
     
-    # Generate excerpt using LLM if needed
-    if need_excerpt and post_data.get("content"):
-        # Generate content with AI (only excerpt, no tags needed)
+    # Generate content using LLM if needed
+    if (need_excerpt or need_tags) and post_data.get("content"):
+        # If we need to generate tags, get existing tags for context
+        existing_tags = []
+        if need_tags:
+            # Get existing tags from the database
+            tag_results = db.query(Post.tags).all()
+            # Flatten the list of lists and remove duplicates
+            flat_tags = []
+            for tags_list in tag_results:
+                if tags_list[0]:  # Check if tags_list[0] is not None
+                    flat_tags.extend(tags_list[0])
+            existing_tags = list(set(flat_tags))
+        
+        # Generate content with AI
         generated_content = generate_post_content(
             title=post_data.get("title", post.title),
             content=post_data["content"],
-            need_excerpt=True,
-            need_tags=False
+            existing_tags=existing_tags,
+            need_excerpt=need_excerpt,
+            need_tags=need_tags
         )
         
         # Update post data with generated excerpt
-        if generated_content["excerpt"]:
+        if need_excerpt and generated_content["excerpt"]:
             post_data["excerpt"] = generated_content["excerpt"]
+            
+        # Update post data with generated tags
+        if need_tags and generated_content["tags"]:
+            post_data["tags"] = generated_content["tags"]
     
     # Update all fields
     for key, value in post_data.items():

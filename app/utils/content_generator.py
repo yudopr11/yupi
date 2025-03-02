@@ -123,7 +123,7 @@ Return your response in the following JSON format:
             if need_tags and "tags" in response_data:
                 tags = response_data["tags"]
                 # Ensure all tags are strings and properly capitalized
-                tags = [str(tag).strip().title() for tag in tags]
+                tags = [str(tag).strip() for tag in tags]
                 # Remove any empty tags
                 tags = [tag for tag in tags if tag]
                 # Limit to max_tags

@@ -117,7 +117,7 @@ def generate_post_embedding(title: str, excerpt: str) -> List[float]:
     Returns:
         List of floats representing the embedding vector
     """
-    # Only use title (weighted more) and excerpt
+    # Only use title and excerpt
     combined_text = f"{title} {excerpt}"
     
     # Generate embedding for the combined text
