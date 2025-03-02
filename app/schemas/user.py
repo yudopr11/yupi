@@ -70,7 +70,7 @@ class DeleteUserResponse(DeleteResponse[DeletedUserInfo]):
     Example:
         {
             "message": "User has been deleted successfully",
-            "deleted_user": {
+            "deleted_item": {
                 "id": 1,
                 "username": "johndoe",
                 "uuid": "123e4567-e89b-12d3-a456-426614174000"

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, List
 
 from app.utils.database import get_db
 from app.utils.auth import (
@@ -27,6 +27,28 @@ from app.schemas.error import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.get(
+    "/users", 
+    response_model=List[UserResponse],
+    responses={
+        401: {"model": ErrorDetail, "description": "Not authenticated"},
+        403: {"model": ErrorDetail, "description": "Not enough permissions"}
+    }
+)
+async def get_users(
+    current_superuser: User = Depends(get_current_superuser),
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of all users (superuser only)
+    
+    This endpoint returns all registered users in the system.
+    Only superusers have access to this endpoint.
+    """
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return users 
 
 @router.post(
     "/register", 
@@ -177,5 +199,5 @@ async def delete_user(
 
     return DeleteUserResponse(
         message="User has been deleted successfully",
-        deleted_user=user_info
-    ) 
+        deleted_item=user_info
+    )

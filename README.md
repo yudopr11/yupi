@@ -8,6 +8,9 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - JWT-based authentication with secure refresh token handling
   - HTTP-only cookie-based refresh tokens
   - User registration and management
+    - User creation (superuser only)
+    - User list retrieval (superuser only)
+    - User deletion (superuser only)
   - Role-based access control (User/Superuser)
   - Automatic token refresh
   - Secure logout mechanism
@@ -31,6 +34,15 @@ A FastAPI-based API service that provides various utility endpoints including bl
     - Reduces API usage and latency
   - Reading time calculation
   - Search functionality across title, excerpt, content, and tags
+  - Flexible post filtering options
+    - Filter by published status (published, unpublished, or all)
+    - Filter by tags (case-insensitive)
+    - Pagination with customizable limits
+  - Semantic search using OpenAI embeddings (RAG-based approach)
+  - Full text search (by title, excerpt, content, and tags)
+  - Filtering by tags and published status
+  - Calculated reading time
+  - URL-friendly slugs
 
 - **Bill Splitting Analysis**
   - Upload bill images for analysis
@@ -155,6 +167,57 @@ Deploying to Railway is simple:
 5. Railway will automatically detect the Vite configuration and deploy your site
 
 That's it! Railway will automatically build and deploy your application. If needed, you can add environment variables in your project settings.
+
+## AI-Powered Features
+
+### Smart Content Generation
+
+The blog component includes two AI-powered features that enhance the content creation process:
+
+1. **Automatic Excerpt Generation**: When a new post is created without specifying an excerpt, the system uses an LLM to generate a concise, engaging excerpt based on the post content.
+
+2. **Intelligent Tag Suggestion**: When tags are not provided for a post, the system analyzes the content and suggests relevant tags. The system aims to reuse existing tags when appropriate for consistency across the blog and capitalizes tags for better readability.
+
+3. **Semantic Search with RAG**: The blog search uses a Retrieval Augmented Generation (RAG) approach with OpenAI embeddings for more intelligent search results. This enables finding content based on semantic meaning rather than just keyword matching.
+
+### How the Semantic Search Works
+
+The system uses the following approach for semantic search:
+
+1. **Embedding Generation**: Title and excerpt of each post are embedded using OpenAI's embedding model.
+2. **Vector Storage**: Embeddings are stored as float arrays in PostgreSQL.
+3. **Similarity Calculation**: When a search query is submitted, it's embedded and compared to post embeddings using cosine similarity.
+4. **Ranked Results**: Posts are ranked by semantic similarity to the query, returning the most relevant content.
+
+### Tokenization
+
+The system uses the `tiktoken` library (the same tokenizer used by OpenAI models) to preprocess text before generating embeddings. This provides:
+
+- Consistent tokenization between the API and OpenAI's embedding models
+- Improved handling of special characters, punctuation, and whitespace
+- Better performance for short queries through token-based threshold adjustment
+- Query expansion for very short queries to improve search relevance
+
+### Using RAG Search
+
+To use the semantic search capability, add the following query parameters to the `/blog` endpoint:
+
+- `search`: Your search query
+- `use_rag`: Set to `true` to enable semantic search (otherwise, default keyword search is used)
+
+Example: `/blog?search=climate change&use_rag=true`
+
+### Updating Embeddings
+
+The system automatically:
+- Generates embeddings for new posts
+- Updates embeddings when posts are edited
+- Refreshes all embeddings on deployment
+
+Administrators can also manually update embeddings using the command:
+```
+python scripts/update_embeddings.py --force
+```
 
 ## License
 

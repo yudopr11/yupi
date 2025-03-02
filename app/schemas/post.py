@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Generic, TypeVar
 from uuid import UUID
 from .common import DeletedItemInfo, DeleteResponse
 
@@ -75,11 +75,24 @@ class DeletePostResponse(DeleteResponse[DeletedPostInfo]):
     Example:
         {
             "message": "Post has been deleted successfully",
-            "deleted_post": {
+            "deleted_item": {
                 "id": 1,
                 "title": "My First Blog Post",
                 "uuid": "123e4567-e89b-12d3-a456-426614174000"
             }
         }
     """
-    pass 
+    pass
+
+class PaginatedPostsResponse(BaseModel):
+    """
+    Schema for paginated posts response with metadata
+    """
+    items: List[PostList] = Field(..., description="List of posts")
+    total_count: int = Field(..., description="Total number of posts matching the query")
+    has_more: bool = Field(..., description="Whether there are more posts after the current page")
+    limit: int = Field(..., description="Number of items per page requested")
+    skip: int = Field(..., description="Number of items skipped (offset)")
+    
+    class Config:
+        from_attributes = True 
