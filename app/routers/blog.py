@@ -13,6 +13,7 @@ from app.schemas.error import (
 )
 from app.utils.slug import generate_slug
 from app.utils.reading_time import calculate_reading_time
+from app.utils.content_generator import generate_post_content
 from sqlalchemy import or_, func
 
 router = APIRouter(prefix="/blog", tags=["Blog"])
@@ -30,9 +31,51 @@ async def create_post(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create new post (authenticated users only)"""
+    """
+    Create new post (authenticated users only)
+    
+    - Automatically generates post excerpt using AI if not provided
+    - Automatically suggests relevant tags using AI if none provided
+    - Calculates reading time
+    - Creates URL-friendly slug
+    """
+    post_data = post.model_dump()
+    
+    # Determine what content needs to be generated
+    need_excerpt = not post_data.get("excerpt") or post_data["excerpt"].strip() == ""
+    need_tags = not post_data.get("tags") or len(post_data["tags"]) == 0
+    
+    # If we need to generate content, get existing tags for context
+    if need_excerpt or need_tags:
+        existing_tags = []
+        if need_tags:
+            # Get existing tags from the database
+            tag_results = db.query(Post.tags).all()
+            # Flatten the list of lists and remove duplicates
+            flat_tags = []
+            for tags_list in tag_results:
+                if tags_list[0]:  # Check if tags_list[0] is not None
+                    flat_tags.extend(tags_list[0])
+            existing_tags = list(set(flat_tags))
+        
+        # Generate content (excerpt and/or tags) in a single LLM call
+        generated_content = generate_post_content(
+            title=post_data["title"],
+            content=post_data["content"],
+            existing_tags=existing_tags,
+            need_excerpt=need_excerpt,
+            need_tags=need_tags
+        )
+        
+        # Update post data with generated content
+        if need_excerpt and generated_content["excerpt"]:
+            post_data["excerpt"] = generated_content["excerpt"]
+        
+        if need_tags and generated_content["tags"]:
+            post_data["tags"] = generated_content["tags"]
+    
     db_post = Post(
-        **post.model_dump(),
+        **post_data,
         slug=generate_slug(post.title),
         reading_time=calculate_reading_time(post.content),
         author_id=current_user.id

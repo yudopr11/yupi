@@ -32,7 +32,7 @@ class PostCreate(BaseModel):
     Schema for creating a new blog post
     """
     title: str = Field(..., description="Post title", example="My First Blog Post")
-    excerpt: str = Field(..., description="Short summary of the post", example="A brief introduction to my blog post")
+    excerpt: Optional[str] = Field(None, description="Short summary of the post (generated automatically if not provided)", example="A brief introduction to my blog post")
     content: str = Field(..., description="Full post content in markdown format", example="# Introduction\n\nThis is my first blog post...")
     tags: Optional[List[str]] = Field(default=[], description="List of post tags", example=["tech", "programming"])
     published: bool = Field(default=False, description="Whether the post is published", example=False)

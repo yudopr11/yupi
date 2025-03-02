@@ -18,7 +18,17 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - Tag system
     - Filter posts by specific tag (case-insensitive)
     - Search within post tags
+    - AI-powered tag generation based on content
+      - Considers existing tags for consistency
+      - Prioritizes reusing relevant tags from database
+      - Capitalizes tags for better readability
   - Author information included in responses
+  - AI-powered excerpt generation
+    - Automatically creates engaging summaries
+    - Optional manual override
+  - Optimized AI content generation
+    - Single LLM call generates both excerpts and tags
+    - Reduces API usage and latency
   - Reading time calculation
   - Search functionality across title, excerpt, content, and tags
 
