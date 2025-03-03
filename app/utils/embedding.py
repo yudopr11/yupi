@@ -211,19 +211,11 @@ def search_posts_by_embedding(
     
     if query_length <= 5:  # Tiktoken tokenizes differently than simple word splitting
         # For very short queries, use a much lower threshold
-        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.5)
-        
-        # For single token queries, we should expand them by adding context
-        if query_length <= 2:
-            # Add the token twice to emphasize it
-            tokenized_query = f"{tokenized_query} {tokenized_query}"
-            print(f"Expanded short token query to: '{tokenized_query}'")
+        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.3)
             
     elif query_length <= 10:
         # For short queries, use a slightly lower threshold
-        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.25)
-    
-    print(f"Token count: {query_length}, Original threshold: {similarity_threshold}, Adjusted threshold: {adjusted_threshold}")
+        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.1)
     
     # Generate embedding for the search query
     query_embedding = generate_embedding(tokenized_query)
