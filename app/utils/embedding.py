@@ -151,20 +151,19 @@ def generate_embedding(text: str) -> List[float]:
     except Exception as e:
         return [0.0] * EMBEDDING_DIMENSION
 
-def generate_post_embedding(title: str, excerpt: str, content: str = None) -> List[float]:
+def generate_post_embedding(title: str, excerpt: str) -> List[float]:
     """
     Generate an embedding for a blog post using title and excerpt, with optional content
     
     Args:
         title: The post title
         excerpt: The post excerpt
-        content: The post content (optional, first part will be used if provided)
         
     Returns:
         List of floats representing the embedding vector
     """
     # Combine title, excerpt, and content
-    combined_text = f"{title} {excerpt} {content}"
+    combined_text = f"{title} {excerpt}"
     
     # Ensure we stay within token limit
     truncated_text = truncate_text_to_token_limit(combined_text)

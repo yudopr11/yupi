@@ -230,8 +230,7 @@ async def create_post(
     if post_data.get("excerpt"):
         db_post.embedding = generate_post_embedding(
             title=db_post.title, 
-            excerpt=db_post.excerpt,
-            content=db_post.content
+            excerpt=db_post.excerpt
         )
     
     db.add(db_post)
@@ -325,8 +324,7 @@ async def update_post(
     if post_update.title or "excerpt" in post_data:
         post.embedding = generate_post_embedding(
             title=post.title, 
-            excerpt=post.excerpt,
-            content=post.content
+            excerpt=post.excerpt
         )
     
     db.commit()

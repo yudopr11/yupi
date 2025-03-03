@@ -10,7 +10,7 @@ def generate_post_content(
     need_excerpt: bool = True,
     need_tags: bool = True,
     max_tags: int = 5,
-    max_excerpt_words: int = 30
+    max_excerpt_words: int = 50
 ) -> Dict:
     """
     Generate both excerpt and tags for a blog post using a single OpenAI API call
@@ -54,7 +54,7 @@ I need your help analyzing and enhancing a blog post.
 Title: {title}
 
 Content: 
-{content[:2000]}...  # Using first 2000 chars for context
+{content}
 
 """
         
