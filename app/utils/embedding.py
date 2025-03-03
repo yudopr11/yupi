@@ -106,19 +106,19 @@ def generate_embedding(text: str) -> List[float]:
         print(f"Error generating embedding: {str(e)}")
         return [0.0] * EMBEDDING_DIMENSION
 
-def generate_post_embedding(title: str, excerpt: str) -> List[float]:
+def generate_post_embedding(title: str, excerpt: str, content: str) -> List[float]:
     """
-    Generate an embedding for a blog post using only title and excerpt
+    Generate an embedding for a blog post using title, excerpt, and content
     
     Args:
         title: The post title
         excerpt: The post excerpt
-        
+        content: The post content
     Returns:
         List of floats representing the embedding vector
     """
     # Only use title and excerpt
-    combined_text = f"{title} {excerpt}"
+    combined_text = f"{title} {excerpt} {content}"
     
     # Generate embedding for the combined text
     return generate_embedding(combined_text)
@@ -162,7 +162,8 @@ def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: 
         for post in posts:
             embedding = generate_post_embedding(
                 title=post.title, 
-                excerpt=post.excerpt
+                excerpt=post.excerpt,
+                content=post.content
             )
             post.embedding = embedding
         
