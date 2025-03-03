@@ -210,8 +210,7 @@ def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: 
         for post in posts:
             embedding = generate_post_embedding(
                 title=post.title, 
-                excerpt=post.excerpt,
-                content=post.content
+                excerpt=post.excerpt
             )
             post.embedding = embedding
         
