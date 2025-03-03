@@ -10,14 +10,40 @@ import tiktoken
 # Constants
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI's embedding model
 EMBEDDING_DIMENSION = 1536  # Dimension of embeddings from this model
-# The encoding to use for the embedding model
 TIKTOKEN_ENCODING = "cl100k_base"  # This encoding works with text-embedding-3 models
+MAX_TOKENS = 8192  # Maximum tokens allowed for the embedding model
 
-# Common Indonesian stopwords (can be extended)
+# Common stopwords in both Indonesian and English
 STOPWORDS = {
+    # Indonesian stopwords
     "yang", "dan", "di", "ini", "dengan", "untuk", "tidak", "dari", "dalam", "akan",
     "pada", "juga", "saya", "ke", "karena", "tersebut", "bisa", "ada", "mereka", 
-    "sudah", "atau", "seperti", "oleh", "sebagai", "dapat", "bahwa", "kita", "itu"
+    "sudah", "atau", "seperti", "oleh", "sebagai", "dapat", "bahwa", "kita", "itu",
+    "anda", "dia", "nya", "kami", "kamu", "kalian", "dimana", "kemana", "kenapa",
+    "kapan", "siapa", "mengapa", "bagaimana", "tentang", "sejak", "ketika", "menurut",
+    "hampir", "dimana", "bagi", "sambil", "setelah", "yakni", "mengenai", "hampir",
+    "dimana", "bagi", "sambil", "setelah", "yakni", "mengenai", "selama", "maka",
+    "apabila", "sebelum", "selain", "sesudah", "melainkan", "semua", "sendiri",
+    "setiap", "sedang", "selagi", "sementara", "tetap", "harus", "namun", "lagi",
+    "telah", "sekarang", "masih", "oleh", "tentang", "bahkan", "meski", "yakni",
+    
+    # English stopwords
+    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your",
+    "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her",
+    "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs",
+    "themselves", "what", "which", "who", "whom", "this", "that", "these", "those",
+    "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if",
+    "or", "because", "as", "until", "while", "of", "at", "by", "for", "with",
+    "about", "against", "between", "into", "through", "during", "before", "after",
+    "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over",
+    "under", "again", "further", "then", "once", "here", "there", "when", "where",
+    "why", "how", "all", "any", "both", "each", "few", "more", "most", "other",
+    "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
+    "very", "s", "t", "can", "will", "just", "don", "should", "now", "would", "could",
+    "might", "must", "well", "also", "much", "many", "back", "even", "still", "way",
+    "take", "every", "since", "another", "however", "two", "three", "four", "five",
+    "first", "second", "third", "one", "new", "old", "high", "long"
 }
 
 def get_tiktoken_encoder():
@@ -25,9 +51,29 @@ def get_tiktoken_encoder():
     try:
         return tiktoken.get_encoding(TIKTOKEN_ENCODING)
     except Exception as e:
-        print(f"Error loading tiktoken encoding: {str(e)}")
         # Fall back to cl100k_base if the specified encoding is not available
         return tiktoken.get_encoding("cl100k_base")
+
+def truncate_text_to_token_limit(text: str, max_tokens: int = MAX_TOKENS) -> str:
+    """
+    Truncate text to stay within token limit
+    
+    Args:
+        text: The text to truncate
+        max_tokens: Maximum number of tokens allowed
+        
+    Returns:
+        Truncated text that fits within token limit
+    """
+    encoder = get_tiktoken_encoder()
+    tokens = encoder.encode(text)
+    
+    if len(tokens) <= max_tokens:
+        return text
+        
+    # Truncate tokens and decode back to text
+    truncated_tokens = tokens[:max_tokens]
+    return encoder.decode(truncated_tokens)
 
 def tokenize_text(text: str, remove_stopwords: bool = False) -> str:
     """
@@ -55,8 +101,10 @@ def tokenize_text(text: str, remove_stopwords: bool = False) -> str:
     # Get tiktoken encoder
     encoder = get_tiktoken_encoder()
     
-    # Tokenize with tiktoken
+    # Tokenize with tiktoken and ensure we stay within limit
     tokens = encoder.encode(text)
+    if len(tokens) > MAX_TOKENS:
+        tokens = tokens[:MAX_TOKENS]
     
     # Decode back to text
     decoded_text = encoder.decode(tokens)
@@ -85,7 +133,6 @@ def generate_embedding(text: str) -> List[float]:
         preprocessed_text = tokenize_text(text)
         
         if not preprocessed_text:
-            print(f"Warning: Empty text after preprocessing, original text: '{text}'")
             return [0.0] * EMBEDDING_DIMENSION
         
         # Initialize OpenAI client
@@ -102,26 +149,28 @@ def generate_embedding(text: str) -> List[float]:
         
         return embedding
     except Exception as e:
-        # Log the error and return a zero vector if there's an issue
-        print(f"Error generating embedding: {str(e)}")
         return [0.0] * EMBEDDING_DIMENSION
 
-def generate_post_embedding(title: str, excerpt: str, content: str) -> List[float]:
+def generate_post_embedding(title: str, excerpt: str, content: str = None) -> List[float]:
     """
-    Generate an embedding for a blog post using title, excerpt, and content
+    Generate an embedding for a blog post using title and excerpt, with optional content
     
     Args:
         title: The post title
         excerpt: The post excerpt
-        content: The post content
+        content: The post content (optional, first part will be used if provided)
+        
     Returns:
         List of floats representing the embedding vector
     """
-    # Only use title and excerpt
+    # Combine title, excerpt, and content
     combined_text = f"{title} {excerpt} {content}"
     
-    # Generate embedding for the combined text
-    return generate_embedding(combined_text)
+    # Ensure we stay within token limit
+    truncated_text = truncate_text_to_token_limit(combined_text)
+    
+    # Generate embedding for the truncated text
+    return generate_embedding(truncated_text)
 
 def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: bool = False) -> None:
     """
@@ -201,7 +250,6 @@ def search_posts_by_embedding(
     
     # Preprocess the query
     tokenized_query = tokenize_text(query)
-    print(f"Original query: '{query}', Tokenized query: '{tokenized_query}'")
     
     # Get query tokens using tiktoken
     tokens = encoder.encode(tokenized_query)
@@ -212,11 +260,11 @@ def search_posts_by_embedding(
     
     if query_length <= 5:  # Tiktoken tokenizes differently than simple word splitting
         # For very short queries, use a much lower threshold
-        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.3)
+        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.4)
             
     elif query_length <= 10:
         # For short queries, use a slightly lower threshold
-        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.1)
+        adjusted_threshold = min(similarity_threshold, similarity_threshold - 0.2)
     
     # Generate embedding for the search query
     query_embedding = generate_embedding(tokenized_query)
