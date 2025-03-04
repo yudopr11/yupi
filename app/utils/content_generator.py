@@ -3,6 +3,27 @@ from typing import List, Dict, Tuple
 import json
 from app.core.config import settings
 
+def truncate_content_for_prompt(content: str, max_chars: int = 2000) -> str:
+    """
+    Truncate content for prompt by using first and last chunks with ellipsis in between
+    
+    Args:
+        content: The full content text
+        max_chars: Maximum total characters to include
+        
+    Returns:
+        Truncated content with first and last parts
+    """
+    if len(content) <= max_chars:
+        return content
+    
+    # Use half of max_chars for the first part and half for the last part
+    half_max = max_chars // 2
+    first_part = content[:half_max].strip()
+    last_part = content[-half_max:].strip()
+    
+    return f"{first_part}\n...\n{last_part}"
+
 def generate_post_content(
     title: str, 
     content: str, 
@@ -22,7 +43,7 @@ def generate_post_content(
         need_excerpt: Whether to generate an excerpt
         need_tags: Whether to generate tags
         max_tags: Maximum number of tags to generate (default: 5)
-        max_excerpt_words: Maximum number of words for the excerpt (default: 20)
+        max_excerpt_words: Maximum number of words for the excerpt (default: 50)
         
     Returns:
         A dictionary containing generated excerpt and tags
@@ -47,6 +68,9 @@ def generate_post_content(
         # Create prompt with existing tags
         existing_tags_str = ", ".join(existing_tags[:100])  # Limit to first 100 tags for context
         
+        # Truncate content to include first 1000 and last 1000 characters
+        truncated_content = truncate_content_for_prompt(content, 2000)
+        
         # Build the prompt based on what's needed
         prompt = f"""
 I need your help analyzing and enhancing a blog post. 
@@ -54,7 +78,7 @@ I need your help analyzing and enhancing a blog post.
 Title: {title}
 
 Content: 
-{content}
+{truncated_content}
 
 """
         
