@@ -7,7 +7,7 @@ from app.models.post import Post
 import re
 
 # Constants
-EMBEDDING_MODEL = "text-embedding-3-large"  # OpenAI's embedding model
+EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI's embedding model
 EMBEDDING_DIMENSION = 1536  # Dimension of embeddings from this model
 
 def generate_embedding(text: str) -> List[float]:

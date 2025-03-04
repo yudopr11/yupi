@@ -84,9 +84,11 @@ Content:
         
         if need_excerpt:
             prompt += f"""
-Task 1: Generate a concise and engaging excerpt for this blog post.
+Task 1: Generate a comprehensive summary (ringkasan) of this blog post.
 - Keep it under {max_excerpt_words} words
-- Capture the main value proposition of the post
+- Include the main points and key insights from both the beginning and end of the post
+- Highlight the most important concepts and conclusions
+- Make it standalone and informative so readers understand what the post is about
 - Use active voice and engaging language
 - Do not use phrases like "In this blog post" or "This article discusses"
 """
