@@ -7,7 +7,7 @@ import argparse
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.utils.database import SessionLocal
-from app.utils.embedding import update_all_post_embeddings
+from app.utils.blog_helpers import update_all_post_embeddings
 from app.core.config import settings
 
 def main():

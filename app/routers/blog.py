@@ -11,10 +11,13 @@ from app.schemas.error import (
     NOT_FOUND_ERROR,
     AUTHOR_PERMISSION_ERROR
 )
-from app.utils.slug import generate_slug
-from app.utils.reading_time import calculate_reading_time
-from app.utils.content_generator import generate_post_content
-from app.utils.embedding import generate_post_embedding, search_posts_by_embedding
+from app.utils.blog_helpers import (
+    generate_slug,
+    calculate_reading_time,
+    generate_post_content,
+    generate_post_embedding,
+    search_posts_by_embedding
+)
 from sqlalchemy import or_, func
 
 router = APIRouter(prefix="/blog", tags=["Blog"])

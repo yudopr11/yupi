@@ -1,8 +1,33 @@
 from openai import OpenAI
-from typing import List, Dict, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 import json
+import re
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from slugify import slugify
 from app.core.config import settings
+from app.models.post import Post
 
+# --- Constants ---
+EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI's embedding model
+EMBEDDING_DIMENSION = 1536  # Dimension of embeddings from this model
+
+# --- Slug Generator ---
+def generate_slug(title: str) -> str:
+    """Generate URL-friendly slug from title"""
+    return slugify(title)
+
+# --- Reading Time Calculator ---
+def calculate_reading_time(content: str) -> int:
+    """
+    Calculate reading time in minutes based on content length.
+    Average reading speed: 300 words per minute.
+    Minimum reading time: 1 minute
+    """
+    words = len(content.split())
+    return max(1, round(words / 300))
+
+# --- Content Generation ---
 def truncate_content_for_prompt(content: str, max_chars: int = 2000) -> str:
     """
     Truncate content for prompt by using first and last chunks with ellipsis in between
@@ -200,7 +225,6 @@ def extract_tags_from_text(text: str) -> List[str]:
     Try to extract tags from plain text when JSON parsing fails
     """
     # Look for patterns like ["tag1", "tag2"] or [tag1, tag2]
-    import re
     tags_pattern = r'\[(.*?)\]'
     matches = re.search(tags_pattern, text)
     
@@ -222,4 +246,185 @@ def fallback_excerpt(content: str) -> str:
     first_sentence = content.split('.')[0].strip()
     if len(first_sentence) > 150:
         return first_sentence[:147] + "..."
-    return first_sentence 
+    return first_sentence
+
+# --- Embedding Generation and Search ---
+def generate_embedding(text: str) -> List[float]:
+    """
+    Generate an embedding vector for a given text using OpenAI's API
+    
+    Args:
+        text: The text to embed
+        
+    Returns:
+        List of floats representing the embedding vector
+    """
+    try:
+        if not text:
+            return [0.0] * EMBEDDING_DIMENSION
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # Create embedding
+        response = client.embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=text
+        )
+        
+        # Extract embedding from response
+        embedding = response.data[0].embedding
+        
+        return embedding
+    except Exception as e:
+        return [0.0] * EMBEDDING_DIMENSION
+
+def generate_post_embedding(title: str, excerpt: str) -> List[float]:
+    """
+    Generate an embedding for a blog post using title and excerpt
+    
+    Args:
+        title: The post title
+        excerpt: The post excerpt
+        
+    Returns:
+        List of floats representing the embedding vector
+    """
+    # Combine title and excerpt
+    combined_text = f"{title} {excerpt}"
+    
+    # Generate embedding for the combined text
+    return generate_embedding(combined_text)
+
+def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: bool = False) -> None:
+    """
+    Update embeddings for posts in the database
+    
+    Args:
+        db: Database session
+        batch_size: Number of posts to process in each batch
+        force_update: If True, update all posts regardless of whether they already have embeddings
+    """
+    # Create query based on force_update parameter
+    if force_update:
+        # Update all posts if force_update is True
+        query = db.query(Post)
+        total = query.count()
+        print(f"Forcing update of embeddings for all {total} posts")
+    else:
+        # Otherwise, only update posts without embeddings
+        query = db.query(Post).filter(Post.embedding.is_(None))
+        total = query.count()
+        
+        if total == 0:
+            print("No posts found without embeddings. All posts are already processed.")
+            return
+        else:
+            print(f"Found {total} posts without embeddings")
+        
+    processed = 0
+    
+    while processed < total:
+        # Get a batch of posts
+        posts = query.offset(processed).limit(batch_size).all()
+        
+        if not posts:
+            break
+            
+        # Generate and update embeddings
+        for post in posts:
+            embedding = generate_post_embedding(
+                title=post.title, 
+                excerpt=post.excerpt
+            )
+            post.embedding = embedding
+        
+        # Commit the batch
+        db.commit()
+        processed += len(posts)
+        print(f"Processed {processed}/{total} posts")
+
+def search_posts_by_embedding(
+    query: str, 
+    db: Session, 
+    limit: int = 10, 
+    similarity_threshold: float = 0.7,
+    published_only: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Search for posts using vector similarity
+    
+    Args:
+        query: The search query
+        db: Database session
+        limit: Maximum number of results to return
+        similarity_threshold: Minimum similarity score (0-1)
+        published_only: Whether to only return published posts
+        
+    Returns:
+        List of posts with their similarity scores
+    """
+    # Handle empty queries
+    if not query or query.strip() == "":
+        return []
+    
+    # Generate embedding for the search query
+    query_embedding = generate_embedding(query)
+    
+    # Create SQL query using the cosine_similarity function
+    published_filter = "AND posts.published = TRUE" if published_only else ""
+    sql = text(f"""
+    SELECT 
+        posts.id, 
+        posts.title,
+        posts.slug,
+        posts.excerpt,
+        posts.tags,
+        posts.reading_time,
+        posts.published,
+        posts.created_at,
+        users.id as author_id,
+        users.username as author_username,
+        users.email as author_email,
+        cosine_similarity(posts.embedding, :query_embedding) as similarity
+    FROM 
+        posts
+    JOIN
+        users ON posts.author_id = users.id
+    WHERE 
+        posts.embedding IS NOT NULL
+        {published_filter}
+    ORDER BY 
+        similarity DESC
+    LIMIT :limit
+    """)
+    
+    # Execute query
+    result = db.execute(
+        sql, 
+        {"query_embedding": query_embedding, "limit": limit}
+    )
+    
+    # Process results
+    posts = []
+    for row in result:
+        if row.similarity >= similarity_threshold:
+            post_dict = {
+                "id": row.id,
+                "title": row.title,
+                "slug": row.slug,
+                "excerpt": row.excerpt,
+                "tags": row.tags,
+                "reading_time": row.reading_time,
+                "published": row.published,
+                "created_at": row.created_at,
+                "author": {
+                    "id": row.author_id,
+                    "username": row.author_username,
+                    "email": row.author_email
+                },
+                "similarity": float(row.similarity)
+            }
+            posts.append(post_dict)
+    
+    return posts 
