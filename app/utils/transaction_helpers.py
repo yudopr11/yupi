@@ -338,92 +338,115 @@ def get_filtered_accounts(
     # Return results ordered by name
     return query.order_by(Account.name).all()
 
-def calculate_account_balance(db: Session, account_id: int, user_id: int) -> dict:
+def calculate_account_balance(db: Session, account_id: int, user_id: int = None) -> dict:
     """
     Calculate the balance and transaction totals for a specific account
     
     Args:
         db: Database session
         account_id: ID of the account
-        user_id: ID of the user who owns the account
+        user_id: ID of the user who owns the account (optional if account object is used elsewhere)
         
     Returns:
         Dictionary containing balance details (total_income, total_expenses, 
-        total_transfers_in, total_transfers_out, and overall balance)
+        total_transfers_in, total_transfers_out, overall balance, and payable_balance for credit cards)
     """
     from sqlalchemy import func
     from app.models.transaction import Transaction, TransactionType
     
+    # Get the account to check its type
+    account = None
+    if user_id:
+        account = db.query(Account).filter(
+            Account.account_id == account_id,
+            Account.user_id == user_id
+        ).first()
+    else:
+        account = db.query(Account).filter(
+            Account.account_id == account_id
+        ).first()
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Account with id {account_id} not found"
+        )
+    
     # Calculate income
     income = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
         Transaction.account_id == account_id,
-        Transaction.user_id == user_id,
         Transaction.transaction_type == TransactionType.INCOME
     ).scalar()
     
     # Calculate expenses
     expenses = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
         Transaction.account_id == account_id,
-        Transaction.user_id == user_id,
         Transaction.transaction_type == TransactionType.EXPENSE
     ).scalar()
     
     # Calculate transfers
     transfers_out = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
         Transaction.account_id == account_id,
-        Transaction.user_id == user_id,
         Transaction.transaction_type == TransactionType.TRANSFER
     ).scalar()
     
     transfers_in = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
         Transaction.destination_account_id == account_id,
-        Transaction.user_id == user_id,
         Transaction.transaction_type == TransactionType.TRANSFER
     ).scalar()
     
     # Calculate overall balance
     balance = income - expenses - transfers_out + transfers_in
     
-    return {
+    result = {
         "total_income": income,
         "total_expenses": expenses,
         "total_transfers_in": transfers_in,
         "total_transfers_out": transfers_out,
         "balance": balance
     }
+    
+    # Add payable_balance for credit cards
+    if account.type == AccountType.CREDIT_CARD and account.limit is not None:
+        result["payable_balance"] = account.limit - balance
+    
+    return result
 
 def get_filtered_transactions(
     db: Session,
     user_id: int,
     account_name: Optional[str] = None,
     category_name: Optional[str] = None,
+    transaction_type: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     date_filter_type: Optional[str] = None,
     limit: Optional[int] = None,
     skip: Optional[int] = None,
+    order_by: Optional[str] = 'created_at',
+    sort_order: Optional[str] = 'desc',
     return_query: bool = False
 ) -> Union[list[Transaction], Query]:
     """
-    Get user transactions with various filter options
+    Get filtered transactions based on various criteria
     
     Args:
         db: Database session
-        user_id: ID of the user whose transactions to retrieve
-        account_name: Optional account name to filter by
-        category_name: Optional category name to filter by
-        start_date: Optional start date for date range filter
-        end_date: Optional end date for date range filter
-        date_filter_type: Optional date filter type ('day', 'week', 'month', 'year')
-        limit: Optional limit for number of results
-        skip: Optional number of results to skip (for pagination)
-        return_query: If True, returns the SQLAlchemy query object instead of executing it
+        user_id: ID of the user who owns the transactions
+        account_name: Optional filter by account name (will match partially)
+        category_name: Optional filter by category name (will match partially)
+        transaction_type: Optional filter by transaction type ('income', 'expense', 'transfer')
+        start_date: Optional start date for custom date range filter
+        end_date: Optional end date for custom date range filter
+        date_filter_type: Optional filter by predefined date range ('day', 'week', 'month', 'year')
+        limit: Maximum number of results to return
+        skip: Number of results to skip for pagination
+        order_by: Field to order by (default: 'created_at')
+        sort_order: Sort order ('asc' or 'desc', default: 'desc')
+        return_query: If True, returns the SQLAlchemy query object instead of results
         
     Returns:
-        List of transactions or SQLAlchemy query object if return_query is True
-        
-    Raises:
-        HTTPException: If any filter parameters are invalid
+        List of transactions matching the filters, or a query object if return_query is True
     """
     from sqlalchemy import or_
     from app.models.transaction import Transaction
@@ -474,6 +497,10 @@ def get_filtered_transactions(
         category_ids = [cat[0] for cat in category_ids]  # Extract IDs from result tuples
         query = query.filter(Transaction.category_id.in_(category_ids))
     
+    # Apply transaction type filter if provided
+    if transaction_type:
+        query = query.filter(Transaction.transaction_type == transaction_type)
+    
     # Apply date filters
     now = datetime.now()
     
@@ -516,8 +543,22 @@ def get_filtered_transactions(
     if end_date:
         query = query.filter(Transaction.transaction_date <= end_date)
     
-    # Apply sorting (newest first)
-    query = query.order_by(Transaction.transaction_date.desc())
+    # Apply sorting based on specified field and order
+    if order_by:
+        # Validate order_by field
+        valid_fields = ['created_at', 'transaction_date', 'amount', 'description']
+        if order_by not in valid_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid order_by field: {order_by}. Must be one of: {', '.join(valid_fields)}"
+            )
+        
+        # Apply sorting direction
+        sort_attr = getattr(Transaction, order_by)
+        if sort_order and sort_order.lower() == 'asc':
+            query = query.order_by(sort_attr.asc())
+        else:
+            query = query.order_by(sort_attr.desc())
     
     # Return query if requested (for counting or other operations)
     if return_query:
@@ -531,4 +572,38 @@ def get_filtered_transactions(
         query = query.limit(limit)
     
     # Return results with joined relationships
-    return query.all() 
+    return query.all()
+
+def calculate_date_range(period: str) -> Tuple[datetime, datetime]:
+    """
+    Calculate start and end dates based on period
+    
+    Args:
+        period: String indicating the period ('day', 'week', 'month', 'year', 'all')
+        
+    Returns:
+        Tuple containing (start_date, end_date)
+        
+    Raises:
+        ValueError: If an invalid period is provided
+    """
+    from datetime import datetime, timedelta
+    
+    end_date = datetime.now()
+    
+    if period == "day":
+        start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "week":
+        start_date = end_date - timedelta(days=end_date.weekday())
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "month":
+        start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "year":
+        start_date = end_date.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "all":
+        # Use a very old date as start
+        start_date = datetime(2000, 1, 1)
+    else:
+        raise ValueError(f"Invalid period: {period}")
+    
+    return start_date, end_date 

@@ -25,6 +25,7 @@ class Account(AccountBase):
 
 class AccountWithBalance(Account):
     balance: float = 0.0
+    payable_balance: Optional[float] = None
 
 class AccountResponse(BaseModel):
     data: Account

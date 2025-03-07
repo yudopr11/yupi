@@ -83,4 +83,92 @@ class TransactionList(BaseModel):
     has_more: bool = False
     limit: int
     skip: int
-    message: str = "Success" 
+    message: str = "Success"
+
+class BulkTransactionError(BaseModel):
+    """
+    Schema for error information in bulk transaction operations
+    """
+    index: int = Field(..., description="Index of the transaction in the input array")
+    description: str = Field(..., description="Description of the transaction that failed")
+    error: str = Field(..., description="Error message describing why the transaction failed")
+
+class BulkTransactionResponse(BaseModel):
+    """
+    Schema for bulk transaction creation response
+    
+    Example:
+        {
+            "success_count": 2,
+            "error_count": 1,
+            "created_transactions": [
+                {
+                    "transaction_id": 1,
+                    "uuid": "123e4567-e89b-12d3-a456-426614174000",
+                    "transaction_date": "2023-01-15T12:00:00Z",
+                    "description": "Salary",
+                    "amount": 5000.0,
+                    "transaction_type": "income",
+                    "account_id": 1,
+                    "user_id": 1,
+                    "created_at": "2023-01-15T12:05:00Z",
+                    "updated_at": "2023-01-15T12:05:00Z"
+                },
+                {
+                    "transaction_id": 2,
+                    "uuid": "123e4567-e89b-12d3-a456-426614174001",
+                    "transaction_date": "2023-01-15T12:10:00Z",
+                    "description": "Groceries",
+                    "amount": 100.0,
+                    "transaction_type": "expense",
+                    "account_id": 1,
+                    "category_id": 1,
+                    "user_id": 1,
+                    "created_at": "2023-01-15T12:15:00Z",
+                    "updated_at": "2023-01-15T12:15:00Z"
+                }
+            ],
+            "errors": [
+                {
+                    "index": 2,
+                    "description": "Invalid Transaction",
+                    "error": "Account not found"
+                }
+            ]
+        }
+    """
+    success_count: int = Field(..., description="Number of transactions successfully created")
+    error_count: int = Field(..., description="Number of transactions that failed to create")
+    created_transactions: List[Transaction] = Field(..., description="List of successfully created transactions")
+    errors: List[BulkTransactionError] = Field(..., description="List of errors for failed transactions")
+
+class BulkCategoryError(BaseModel):
+    """
+    Schema for error information in bulk category assignment
+    """
+    transaction_id: int = Field(..., description="ID of the transaction that failed categorization")
+    error: str = Field(..., description="Error message describing why the categorization failed")
+
+class BulkCategorizeResponse(BaseModel):
+    """
+    Schema for bulk categorize response
+    
+    Example:
+        {
+            "success_count": 2,
+            "error_count": 1,
+            "updated_transaction_ids": [1, 2],
+            "errors": [
+                {
+                    "transaction_id": 3,
+                    "error": "Income transaction cannot be assigned to expense category"
+                }
+            ],
+            "message": "Successfully updated 2 transaction(s)"
+        }
+    """
+    success_count: int = Field(..., description="Number of transactions successfully updated")
+    error_count: int = Field(..., description="Number of transactions that failed to update")
+    updated_transaction_ids: List[int] = Field(..., description="List of IDs of successfully updated transactions")
+    errors: List[BulkCategoryError] = Field(..., description="List of errors for failed updates")
+    message: str = Field(..., description="Success message") 

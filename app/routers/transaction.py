@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import func, case, or_
+from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery
+from sqlalchemy.orm import Session, Query
+from sqlalchemy import func, case, or_, desc
 from typing import List, Optional
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import calendar
 
 from app.utils.database import get_db
@@ -22,15 +22,23 @@ from app.utils.transaction_helpers import (
     get_filtered_accounts,
     get_filtered_categories,
     calculate_account_balance,
-    get_filtered_transactions
+    get_filtered_transactions,
+    calculate_date_range
 )
 from app.models.transaction import Transaction, TransactionType
-from app.models.account import Account, AccountType
-from app.models.category import Category, CategoryType
+from app.models.account import Account as AccountModel, AccountType
+from app.models.category import Category as CategoryModel, CategoryType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionResponse, AccountBalanceResponse, DeleteTransactionResponse, TransactionList
-from app.schemas.account import AccountCreate, AccountResponse, Account, AccountWithBalance, DeleteAccountResponse
+from app.schemas.transaction import BulkTransactionResponse, BulkCategorizeResponse
+from app.schemas.account import AccountCreate, AccountResponse, AccountWithBalance, DeleteAccountResponse
 from app.schemas.category import CategoryCreate, CategoryResponse, Category, DeleteCategoryResponse
+from app.schemas.statistics import (
+    FinancialSummaryResponse, 
+    CategoryDistributionResponse, 
+    TransactionTrendsResponse, 
+    AccountSummaryResponse
+)
 
 router = APIRouter(
     prefix="/personal-transactions",
@@ -47,6 +55,41 @@ def create_account(account: AccountCreate, db: Session = Depends(get_db), curren
     db.commit()
     db.refresh(new_account)
     
+    # For credit cards, create an initial balance transaction equal to the limit
+    if new_account.type == AccountType.CREDIT_CARD and new_account.limit is not None:
+        # Find or create "Other" category for income
+        other_category = db.query(CategoryModel).filter(
+            CategoryModel.name == "Other",
+            CategoryModel.type == CategoryType.INCOME,
+            CategoryModel.user_id == current_user.id
+        ).first()
+        
+        if not other_category:
+            # Create "Other" category if it doesn't exist
+            other_category = CategoryModel(
+                name="Other",
+                type=CategoryType.INCOME,
+                user_id=current_user.id,
+                uuid=str(uuid.uuid4())
+            )
+            db.add(other_category)
+            db.commit()
+            db.refresh(other_category)
+        
+        initial_balance_tx = Transaction(
+            transaction_date=datetime.now(UTC),
+            description="Initial credit card balance",
+            amount=new_account.limit,
+            transaction_type=TransactionType.INCOME,  # Use income to add positive balance
+            account_id=new_account.account_id,
+            category_id=other_category.category_id,  # Set category to "Other"
+            user_id=current_user.id,
+            uuid=uuid.uuid4()
+        )
+        
+        db.add(initial_balance_tx)
+        db.commit()
+    
     return {"data": new_account, "message": "Account created successfully"}
 
 @router.put("/accounts/{account_id}", response_model=AccountResponse)
@@ -62,7 +105,7 @@ def update_account(account_id: int, account: AccountCreate, db: Session = Depend
         )
     
     # Update account
-    account_query = db.query(Account).filter(Account.account_id == account_id, Account.user_id == current_user.id)
+    account_query = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.id)
     account_query.update(account.model_dump(), synchronize_session=False)
     db.commit()
     db.refresh(existing_account)
@@ -78,7 +121,7 @@ def delete_account(account_id: int, db: Session = Depends(get_db), current_user:
     deleted_account_info = prepare_deleted_account_info(account)
     
     # Delete account
-    account_query = db.query(Account).filter(Account.account_id == account_id, Account.user_id == current_user.id)
+    account_query = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.id)
     account_query.delete(synchronize_session=False)
     db.commit()
     
@@ -89,7 +132,7 @@ def delete_account(account_id: int, db: Session = Depends(get_db), current_user:
 
 @router.get("/accounts/{account_id}/balance", response_model=AccountBalanceResponse)
 def get_account_balance(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    account = db.query(Account).filter(Account.account_id == account_id, Account.user_id == current_user.id).first()
+    account = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.id).first()
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -99,16 +142,22 @@ def get_account_balance(account_id: int, db: Session = Depends(get_db), current_
     # Calculate balance details using the helper function
     balance_details = calculate_account_balance(db, account_id, current_user.id)
     
+    response_data = {
+        "account_id": account_id,
+        "balance": balance_details["balance"],
+        "total_income": balance_details["total_income"],
+        "total_expenses": balance_details["total_expenses"],
+        "total_transfers_in": balance_details["total_transfers_in"],
+        "total_transfers_out": balance_details["total_transfers_out"],
+        "account": account
+    }
+    
+    # Add payable_balance for credit cards
+    if account.type == AccountType.CREDIT_CARD and account.limit is not None:
+        response_data["payable_balance"] = balance_details.get("payable_balance")
+    
     return {
-        "data": {
-            "account_id": account_id,
-            "balance": balance_details["balance"],
-            "total_income": balance_details["total_income"],
-            "total_expenses": balance_details["total_expenses"],
-            "total_transfers_in": balance_details["total_transfers_in"],
-            "total_transfers_out": balance_details["total_transfers_out"],
-            "account": account
-        },
+        "data": response_data,
         "message": "Balance retrieved successfully"
     }
 
@@ -128,20 +177,24 @@ def get_accounts(
         current_user: Current authenticated user
         
     Returns:
-        List of accounts with balances
+        List of accounts with calculated balances
     """
+    # Get accounts based on filters
     accounts = get_filtered_accounts(db, current_user.id, account_type)
     
-    # Add balance to each account
+    # Calculate balances for each account and create result objects
     result = []
     for account in accounts:
-        account_dict = account.__dict__.copy()
-        balance_details = calculate_account_balance(db, account.account_id, current_user.id)
-        account_dict['balance'] = balance_details["balance"]
-        # Create AccountWithBalance object
-        account_with_balance = AccountWithBalance.model_validate(account_dict)
-        result.append(account_with_balance)
+        balance_details = calculate_account_balance(db, account.account_id)
+        account_with_balance = AccountWithBalance.model_validate(account)
+        account_with_balance.balance = balance_details["balance"]
         
+        # Add payable_balance for credit cards
+        if account.type == AccountType.CREDIT_CARD and account.limit is not None:
+            account_with_balance.payable_balance = balance_details.get("payable_balance")
+        
+        result.append(account_with_balance)
+    
     return result
 
 # Category endpoints
@@ -162,7 +215,7 @@ def update_category(category_id: int, category: CategoryCreate, db: Session = De
     existing_category = validate_category(db, category_id, current_user.id)
     
     # Update category
-    category_query = db.query(Category).filter(Category.category_id == category_id, Category.user_id == current_user.id)
+    category_query = db.query(CategoryModel).filter(CategoryModel.category_id == category_id, CategoryModel.user_id == current_user.id)
     category_query.update(category.model_dump(), synchronize_session=False)
     db.commit()
     db.refresh(existing_category)
@@ -178,7 +231,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db), current_use
     deleted_category_info = prepare_deleted_category_info(category)
     
     # Delete category
-    category_query = db.query(Category).filter(Category.category_id == category_id, Category.user_id == current_user.id)
+    category_query = db.query(CategoryModel).filter(CategoryModel.category_id == category_id, CategoryModel.user_id == current_user.id)
     category_query.delete(synchronize_session=False)
     db.commit()
     
@@ -218,6 +271,19 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
     
     # Validate category type matches transaction type
     validate_transaction_category_match(transaction.transaction_type, category)
+    
+    # Credit card validation for expenses
+    if (
+        transaction.transaction_type == TransactionType.EXPENSE and 
+        account.type == AccountType.CREDIT_CARD
+    ):
+        # Calculate current balance
+        balance_details = calculate_account_balance(db, account.account_id)
+        if balance_details["balance"] <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Cannot create expense with this credit card - no available balance. Please top up by creating a transfer to this account."
+            )
     
     # Validate transfer details
     validate_transfer(
@@ -260,6 +326,30 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
     
     # Validate category type matches transaction type
     validate_transaction_category_match(transaction.transaction_type, category)
+    
+    # Credit card validation for expenses - only check if this is a new expense or amount increased
+    if (
+        transaction.transaction_type == TransactionType.EXPENSE and 
+        account.type == AccountType.CREDIT_CARD and
+        (existing_transaction.transaction_type != TransactionType.EXPENSE or
+         transaction.amount > existing_transaction.amount)
+    ):
+        # Calculate current balance, excluding the current transaction
+        balance_details = calculate_account_balance(db, account.account_id)
+        
+        # Add back the existing transaction amount if it's an expense from the same account
+        if (existing_transaction.transaction_type == TransactionType.EXPENSE and 
+            existing_transaction.account_id == transaction.account_id):
+            adjusted_balance = balance_details["balance"] + existing_transaction.amount
+        else:
+            adjusted_balance = balance_details["balance"]
+        
+        # Check if there's enough balance for the new expense amount
+        if adjusted_balance - transaction.amount < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Cannot update expense with this credit card - insufficient available balance. Please top up by creating a transfer to this account."
+            )
     
     # Validate transfer details
     validate_transfer(
@@ -307,9 +397,12 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
 def get_transactions(
     account_name: Optional[str] = None,
     category_name: Optional[str] = None,
+    transaction_type: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None, 
     date_filter_type: Optional[str] = None,
+    order_by: Optional[str] = 'created_at',
+    sort_order: Optional[str] = 'desc',
     limit: Optional[int] = 10,
     skip: Optional[int] = 0,
     db: Session = Depends(get_db),
@@ -321,9 +414,12 @@ def get_transactions(
     Args:
         account_name: Optional filter by account name (will match partially)
         category_name: Optional filter by category name (will match partially)
+        transaction_type: Optional filter by transaction type ('income', 'expense', 'transfer')
         start_date: Optional start date for custom date range filter
         end_date: Optional end date for custom date range filter
         date_filter_type: Optional filter by predefined date range ('day', 'week', 'month', 'year')
+        order_by: Field to order by (default: 'created_at')
+        sort_order: Sort order ('asc' or 'desc', default: 'desc')
         limit: Maximum number of results to return (default: 10)
         skip: Number of results to skip for pagination (default: 0)
         db: Database session
@@ -339,9 +435,12 @@ def get_transactions(
             user_id=current_user.id,
             account_name=account_name,
             category_name=category_name,
+            transaction_type=transaction_type,
             start_date=start_date,
             end_date=end_date,
             date_filter_type=date_filter_type,
+            order_by=order_by,
+            sort_order=sort_order,
             return_query=True  # Return query object instead of results
         )
         
@@ -374,4 +473,518 @@ def get_transactions(
             "limit": limit,
             "skip": skip,
             "message": e.detail
-        } 
+        }
+
+# Statistics endpoints
+@router.get("/statistics/summary", response_model=FinancialSummaryResponse)
+def get_financial_summary(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    period: str = "month",  # Options: day, week, month, year, all
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get financial summary for a given period
+    
+    Args:
+        start_date: Optional start date for custom date range
+        end_date: Optional end date for custom date range
+        period: Period to calculate summary for ('day', 'week', 'month', 'year', 'all')
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Summary of financial data for the specified period
+    """
+    # Calculate date range based on period if not provided
+    if not start_date or not end_date:
+        try:
+            start_date, end_date = calculate_date_range(period)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    # Get totals by transaction type
+    query = db.query(
+        Transaction.transaction_type,
+        func.sum(Transaction.amount).label("total")
+    ).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.transaction_date.between(start_date, end_date)
+    ).group_by(Transaction.transaction_type)
+    
+    results = query.all()
+    
+    # Format the results
+    summary = {
+        "period": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "period_type": period
+        },
+        "totals": {
+            "income": 0.0,
+            "expense": 0.0,
+            "transfer": 0.0,
+            "net": 0.0
+        }
+    }
+    
+    for row in results:
+        transaction_type, total = row
+        summary["totals"][transaction_type.value] = float(total)
+    
+    # Calculate net
+    summary["totals"]["net"] = summary["totals"]["income"] - summary["totals"]["expense"]
+    
+    return summary
+
+@router.get("/statistics/by-category", response_model=CategoryDistributionResponse)
+def get_category_distribution(
+    transaction_type: str = "expense",  # Default to expense
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    period: str = "month",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get distribution of transactions by category for a given period
+    
+    Args:
+        transaction_type: Type of transactions to analyze (income or expense)
+        start_date: Optional start date for custom date range
+        end_date: Optional end date for custom date range
+        period: Period to analyze trends for ('day', 'week', 'month', 'year', 'all')
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Distribution of transactions by category with percentages
+    """
+    # Validate transaction type
+    if transaction_type not in ("income", "expense"):
+        raise HTTPException(status_code=400, detail="Transaction type must be 'income' or 'expense'")
+    
+    # Calculate date range if not provided
+    if not start_date or not end_date:
+        try:
+            start_date, end_date = calculate_date_range(period)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    # Convert transaction_type to enum
+    tx_type = TransactionType(transaction_type)
+    
+    # Query for totals by category
+    query = db.query(
+        CategoryModel.name,
+        CategoryModel.uuid,
+        func.sum(Transaction.amount).label("total")
+    ).join(
+        Transaction, 
+        Transaction.category_id == CategoryModel.category_id
+    ).filter(
+        Transaction.user_id == current_user.id,
+        CategoryModel.user_id == current_user.id,
+        Transaction.transaction_date.between(start_date, end_date),
+        Transaction.transaction_type == tx_type
+    ).group_by(
+        CategoryModel.category_id
+    ).order_by(
+        desc("total")
+    )
+    
+    results = query.all()
+    
+    # Calculate total for the period
+    total_query = db.query(
+        func.sum(Transaction.amount).label("total")
+    ).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.transaction_date.between(start_date, end_date),
+        Transaction.transaction_type == tx_type
+    )
+    
+    total_result = total_query.scalar() or 0.0
+    total = float(total_result)
+    
+    # Process the results
+    categories = []
+    for name, uuid, category_total in results:
+        category_total = float(category_total)
+        percentage = (category_total / total * 100) if total > 0 else 0.0
+        
+        categories.append({
+            "name": name,
+            "uuid": str(uuid),
+            "total": category_total,
+            "percentage": percentage
+        })
+    
+    return {
+        "period": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "period_type": period
+        },
+        "transaction_type": transaction_type,
+        "total": total,
+        "categories": categories
+    }
+
+@router.get("/statistics/trends", response_model=TransactionTrendsResponse)
+def get_transaction_trends(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    period: str = "month",
+    group_by: str = "day",  # Options: day, week, month
+    transaction_types: List[str] = FastAPIQuery(["income", "expense"]),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get transaction trends over time
+    
+    Args:
+        start_date: Optional start date for custom date range
+        end_date: Optional end date for custom date range
+        period: Period to analyze trends for ('day', 'week', 'month', 'year', 'all')
+        group_by: How to group results ('day', 'week', 'month')
+        transaction_types: Types of transactions to include in the analysis
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Trends of transactions over time
+    """
+    # Calculate date range if not provided
+    if not start_date or not end_date:
+        try:
+            start_date, end_date = calculate_date_range(period)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    # Validate group_by parameter
+    if group_by not in ("day", "week", "month"):
+        raise HTTPException(status_code=400, detail="Invalid group_by parameter. Must be 'day', 'week', or 'month'")
+    
+    # Validate transaction_types
+    for tx_type in transaction_types:
+        if tx_type not in ("income", "expense", "transfer"):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid transaction type '{tx_type}'. Must be 'income', 'expense', or 'transfer'"
+            )
+    
+    # Dynamically build the date grouping expression based on group_by
+    if group_by == "day":
+        date_trunc = func.date_trunc('day', Transaction.transaction_date)
+    elif group_by == "week":
+        date_trunc = func.date_trunc('week', Transaction.transaction_date)
+    elif group_by == "month":
+        date_trunc = func.date_trunc('month', Transaction.transaction_date)
+    
+    # Query to get totals by date and transaction type
+    query = db.query(
+        date_trunc.label("date"),
+        Transaction.transaction_type,
+        func.sum(Transaction.amount).label("total")
+    ).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.transaction_date.between(start_date, end_date),
+        Transaction.transaction_type.in_(transaction_types)
+    ).group_by(
+        date_trunc,
+        Transaction.transaction_type
+    ).order_by(
+        date_trunc
+    )
+    
+    results = query.all()
+    
+    # Process the results
+    trends_data = {}
+    for date, tx_type, total in results:
+        date_str = date.strftime("%Y-%m-%d")
+        if date_str not in trends_data:
+            trends_data[date_str] = {
+                "date": date_str,
+                "income": 0.0,
+                "expense": 0.0,
+                "transfer": 0.0,
+                "net": 0.0
+            }
+        
+        trends_data[date_str][tx_type.value] = float(total)
+        # Update the net value
+        trends_data[date_str]["net"] = trends_data[date_str]["income"] - trends_data[date_str]["expense"]
+    
+    # Convert the dictionary to a list for the response
+    trends = list(trends_data.values())
+    
+    return {
+        "period": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "period_type": period,
+            "group_by": group_by
+        },
+        "trends": trends
+    }
+
+@router.get("/statistics/account-summary", response_model=AccountSummaryResponse)
+def get_account_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get a summary of all accounts with balances and credit utilization
+    
+    Args:
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Summary of all accounts with total balance, credit utilization, and balance by account type
+    """
+    # Get all accounts for the user
+    accounts = db.query(AccountModel).filter(AccountModel.user_id == current_user.id).all()
+    
+    # For each account, calculate the balance
+    account_summaries = []
+    total_balance = 0.0
+    total_available_credit = 0.0
+    total_credit_limit = 0.0
+    balances_by_type = {
+        "bank_account": 0.0,
+        "credit_card": 0.0,
+        "other": 0.0
+    }
+    
+    for account in accounts:
+        balance_info = calculate_account_balance(db, account.account_id, current_user.id)
+        balance = balance_info["balance"]
+        
+        # Add to total balance based on account type
+        if account.type == "credit_card":
+            # For credit cards, we track the negative balance (what we owe)
+            payable_balance = balance_info["payable_balance"]
+            
+            account_summary = {
+                "account_id": account.account_id,
+                "uuid": str(account.uuid),
+                "name": account.name,
+                "type": account.type,
+                "balance": balance,
+                "payable_balance": payable_balance,
+                "limit": account.limit,
+                "utilization_percentage": (payable_balance / account.limit * 100) if account.limit else 0.0
+            }
+            
+            total_available_credit += max(0, account.limit - payable_balance)
+            total_credit_limit += account.limit
+            balances_by_type["credit_card"] += balance
+            
+        else:
+            account_summary = {
+                "account_id": account.account_id,
+                "uuid": str(account.uuid),
+                "name": account.name,
+                "type": account.type,
+                "balance": balance
+            }
+            
+            # Add to the appropriate account type balance
+            if account.type in balances_by_type:
+                balances_by_type[account.type] += balance
+        
+        account_summaries.append(account_summary)
+        total_balance += balance
+    
+    # Calculate credit utilization percentage
+    credit_utilization = 0.0
+    if total_credit_limit > 0:
+        credit_utilization = (total_credit_limit - total_available_credit) / total_credit_limit * 100
+    
+    return {
+        "total_balance": total_balance,
+        "available_credit": total_available_credit,
+        "credit_utilization": credit_utilization,
+        "by_account_type": balances_by_type,
+        "accounts": account_summaries
+    }
+
+# Bulk operations endpoints
+@router.post("/transactions/bulk", response_model=BulkTransactionResponse)
+def create_bulk_transactions(
+    transactions: List[TransactionCreate],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create multiple transactions at once
+    
+    Args:
+        transactions: List of transaction objects to create
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Summary of the operation with counts of successful and failed transactions
+    """
+    created_transactions = []
+    errors = []
+    
+    for idx, tx_data in enumerate(transactions):
+        try:
+            # Validate account exists and belongs to user
+            account = validate_account(db, tx_data.account_id, current_user.id)
+            
+            # Validate category if provided
+            category = validate_category(db, tx_data.category_id, current_user.id)
+            
+            # Validate category type matches transaction type
+            validate_transaction_category_match(tx_data.transaction_type, category)
+            
+            # Credit card validation for expenses
+            if (
+                tx_data.transaction_type == TransactionType.EXPENSE and 
+                account.type == AccountType.CREDIT_CARD
+            ):
+                # Calculate current balance
+                balance_details = calculate_account_balance(db, account.account_id)
+                if balance_details["balance"] <= 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST, 
+                        detail="Cannot create expense with this credit card - no available balance. Please top up by creating a transfer to this account."
+                    )
+            
+            # Validate transfer details
+            validate_transfer(
+                tx_data.transaction_type,
+                tx_data.destination_account_id,
+                tx_data.account_id,
+                db,
+                current_user.id
+            )
+            
+            # Create transaction
+            new_transaction = prepare_transaction_for_db(tx_data.model_dump(), current_user.id)
+            
+            db.add(new_transaction)
+            db.commit()
+            db.refresh(new_transaction)
+            
+            created_transactions.append(new_transaction)
+            
+        except Exception as e:
+            db.rollback()  # Rollback the transaction in case of error
+            
+            # Format error message
+            error_detail = str(e)
+            if isinstance(e, HTTPException):
+                error_detail = e.detail
+                
+            errors.append({
+                "index": idx,
+                "description": tx_data.description,
+                "error": error_detail
+            })
+    
+    return {
+        "success_count": len(created_transactions),
+        "error_count": len(errors),
+        "created_transactions": created_transactions,
+        "errors": errors
+    }
+
+@router.put("/transactions/bulk-categorize", response_model=BulkCategorizeResponse)
+def bulk_categorize_transactions(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update category for multiple transactions
+    
+    Args:
+        data: Dictionary containing transaction_ids and category_id
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Summary of the operation with counts of successful and failed updates
+    """
+    transaction_ids = data.get("transaction_ids", [])
+    category_id = data.get("category_id")
+    
+    if not transaction_ids:
+        raise HTTPException(status_code=400, detail="Transaction IDs are required")
+        
+    if not category_id:
+        raise HTTPException(status_code=400, detail="Category ID is required")
+    
+    # Verify the category exists and belongs to user
+    category = validate_category(db, category_id, current_user.id)
+    
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Update the transactions
+    query = db.query(Transaction).filter(
+        Transaction.transaction_id.in_(transaction_ids),
+        Transaction.user_id == current_user.id
+    )
+    
+    transactions = query.all()
+    
+    if not transactions:
+        raise HTTPException(status_code=404, detail="No transactions found with the provided IDs")
+    
+    updated_ids = []
+    errors = []
+    
+    for tx in transactions:
+        try:
+            # Validate transaction type matches category type
+            if tx.transaction_type not in [TransactionType.INCOME, TransactionType.EXPENSE]:
+                errors.append({
+                    "transaction_id": tx.transaction_id,
+                    "error": "Only income and expense transactions can have categories"
+                })
+                continue
+                
+            if tx.transaction_type == TransactionType.INCOME and category.type != CategoryType.INCOME:
+                errors.append({
+                    "transaction_id": tx.transaction_id,
+                    "error": f"Income transaction cannot be assigned to expense category"
+                })
+                continue
+                
+            if tx.transaction_type == TransactionType.EXPENSE and category.type != CategoryType.EXPENSE:
+                errors.append({
+                    "transaction_id": tx.transaction_id,
+                    "error": f"Expense transaction cannot be assigned to income category"
+                })
+                continue
+            
+            tx.category_id = category_id
+            updated_ids.append(tx.transaction_id)
+            
+        except Exception as e:
+            errors.append({
+                "transaction_id": tx.transaction_id,
+                "error": str(e)
+            })
+    
+    if updated_ids:
+        db.commit()
+    
+    return {
+        "success_count": len(updated_ids),
+        "error_count": len(errors),
+        "updated_transaction_ids": updated_ids,
+        "errors": errors,
+        "message": f"Successfully updated {len(updated_ids)} transaction(s)"
+    } 
