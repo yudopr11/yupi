@@ -8,6 +8,7 @@ convert_json_to_sql.py
 __pycache__/
 *.py[cod]
 *$py.class
+openapi.json:Zone.Identifier
 
 # C extensions
 *.so
