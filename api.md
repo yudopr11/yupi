@@ -496,7 +496,7 @@ Create a new financial account.
   "name": "string",
   "type": "string",
   "description": "string",
-  "limit": 0.00
+  "limit": 5000.00
 }
 ```
 
@@ -504,6 +504,7 @@ Create a new financial account.
 - `type` options: "bank_account", "credit_card", "other"
 - `limit` is required for "credit_card" accounts
 - `description` is optional
+- All monetary values (limit) use decimal precision with two decimal places
 
 **Success Response**: `200 OK`
 ```json
@@ -514,7 +515,7 @@ Create a new financial account.
     "name": "string",
     "type": "string",
     "description": "string",
-    "limit": 0.00,
+    "limit": 5000.00,
     "user_id": 0,
     "created_at": "2023-01-01T00:00:00.000Z",
     "updated_at": "2023-01-01T00:00:00.000Z"
@@ -622,18 +623,19 @@ Get the current balance of an account.
 {
   "data": {
     "account_id": 0,
-    "balance": 0.00,
-    "total_income": 0.00,
-    "total_expenses": 0.00,
-    "total_transfers_in": 0.00,
-    "total_transfers_out": 0.00,
+    "balance": 1500.00,
+    "total_income": 5000.00,
+    "total_expenses": 2000.00,
+    "total_transfers_in": 500.00,
+    "total_transfers_out": 1950.00,
+    "total_transfer_fees": 50.00,
     "account": {
       "account_id": 0,
       "uuid": "string",
       "name": "string",
       "type": "string",
       "description": "string",
-      "limit": 0.00,
+      "limit": 10000.00,
       "user_id": 0,
       "created_at": "2023-01-01T00:00:00.000Z",
       "updated_at": "2023-01-01T00:00:00.000Z"
@@ -642,6 +644,10 @@ Get the current balance of an account.
   "message": "Success"
 }
 ```
+
+**Notes**:
+- Balance calculation: total_income - total_expenses - total_transfers_out - total_transfer_fees + total_transfers_in
+- All monetary values use decimal precision with two decimal places
 
 **Error Responses**:
 - `401 Unauthorized` - Not authenticated
@@ -667,18 +673,24 @@ Get a list of all user accounts with current balances.
     "name": "string",
     "type": "string",
     "description": "string",
-    "limit": 0.00,
+    "limit": 5000.00,
     "user_id": 0,
     "created_at": "2023-01-01T00:00:00.000Z",
     "updated_at": "2023-01-01T00:00:00.000Z",
-    "balance": 0.00,
-    "payable_balance": 0.00
+    "balance": 1500.00,
+    "total_income": 5000.00,
+    "total_expenses": 2000.00,
+    "total_transfers_in": 500.00,
+    "total_transfers_out": 1950.00,
+    "total_transfer_fees": 50.00,
+    "payable_balance": 3500.00
   }
 ]
 ```
 
 **Notes**:
 - `payable_balance` is only included for credit card accounts and represents the amount that needs to be paid
+- All monetary values use decimal precision with two decimal places
 
 **Error Responses**:
 - `401 Unauthorized` - Not authenticated
@@ -836,21 +848,24 @@ Create a new financial transaction.
 **Request Body**:
 ```json
 {
-  "amount": 0.00,
+  "amount": 100.00,
   "description": "string",
   "transaction_date": "2023-01-01T00:00:00.000Z",
   "transaction_type": "string",
   "account_id": 0,
   "category_id": 0,
-  "destination_account_id": 0
+  "destination_account_id": 0,
+  "transfer_fee": 0.00
 }
 ```
 
 **Notes**:
 - `transaction_type` options: "income", "expense", "transfer"
 - `destination_account_id` is required only for "transfer" type transactions
+- `transfer_fee` is applicable only for "transfer" type transactions (defaults to 0.00)
 - `category_id` is optional (required for "income" and "expense" types)
 - Credit card accounts will be validated to ensure sufficient credit limit for expenses
+- All monetary values (amount, transfer_fee) use decimal precision with two decimal places
 
 **Success Response**: `200 OK`
 ```json
@@ -858,10 +873,11 @@ Create a new financial transaction.
   "data": {
     "transaction_id": 0,
     "uuid": "string",
-    "amount": 0.00,
+    "amount": 100.00,
     "description": "string",
     "transaction_date": "2023-01-01T00:00:00.000Z",
     "transaction_type": "string",
+    "transfer_fee": 0.00,
     "account_id": 0,
     "category_id": 0,
     "destination_account_id": 0,
@@ -908,18 +924,23 @@ Update an existing transaction.
 **Request Body**:
 ```json
 {
-  "amount": 0.00,
+  "amount": 150.00,
   "description": "string",
   "transaction_date": "2023-01-01T00:00:00.000Z",
   "transaction_type": "string",
   "account_id": 0,
   "category_id": 0,
-  "destination_account_id": 0
+  "destination_account_id": 0,
+  "transfer_fee": 0.00
 }
 ```
 
 **Notes**:
+- `transaction_type` options: "income", "expense", "transfer"
+- `destination_account_id` is required only for "transfer" type transactions
+- `transfer_fee` is applicable only for "transfer" type transactions (defaults to 0.00)
 - Credit card accounts will be validated to ensure sufficient credit limit for expenses
+- All monetary values (amount, transfer_fee) use decimal precision with two decimal places
 
 **Success Response**: `200 OK`
 ```json
@@ -927,10 +948,11 @@ Update an existing transaction.
   "data": {
     "transaction_id": 0,
     "uuid": "string",
-    "amount": 0.00,
+    "amount": 150.00,
     "description": "string",
     "transaction_date": "2023-01-01T00:00:00.000Z",
     "transaction_type": "string",
+    "transfer_fee": 0.00,
     "account_id": 0,
     "category_id": 0,
     "destination_account_id": 0,
@@ -1065,13 +1087,14 @@ Create multiple transactions at once.
 ```json
 [
   {
-    "amount": 0.00,
+    "amount": 100.00,
     "description": "string",
     "transaction_date": "2023-01-01T00:00:00.000Z",
     "transaction_type": "string",
     "account_id": 0,
     "category_id": 0,
-    "destination_account_id": 0
+    "destination_account_id": 0,
+    "transfer_fee": 0.00
   }
 ]
 ```
@@ -1091,8 +1114,9 @@ Create multiple transactions at once.
       "uuid": "123e4567-e89b-12d3-a456-426614174000",
       "transaction_date": "2023-01-15T12:00:00Z",
       "description": "Salary",
-      "amount": 5000.0,
+      "amount": 5000.00,
       "transaction_type": "income",
+      "transfer_fee": 0.00,
       "account_id": 1,
       "user_id": 1,
       "created_at": "2023-01-15T12:05:00Z",
@@ -1174,10 +1198,10 @@ Get a summary of financial totals for a given period.
     "period_type": "month"
   },
   "totals": {
-    "income": 5000.0,
-    "expense": 3000.0,
-    "transfer": 1000.0,
-    "net": 2000.0
+    "income": 5000.00,
+    "expense": 3000.00,
+    "transfer": 1000.00,
+    "net": 2000.00
   }
 }
 ```
@@ -1209,18 +1233,18 @@ Get the distribution of transactions by category for a given period.
     "period_type": "month"
   },
   "transaction_type": "expense",
-  "total": 3000.0,
+  "total": 3000.00,
   "categories": [
     {
       "name": "Groceries",
       "uuid": "123e4567-e89b-12d3-a456-426614174000",
-      "total": 1000.0,
+      "total": 1000.00,
       "percentage": 33.33
     },
     {
       "name": "Utilities",
       "uuid": "123e4567-e89b-12d3-a456-426614174001",
-      "total": 500.0,
+      "total": 500.00,
       "percentage": 16.67
     }
   ]
@@ -1258,17 +1282,17 @@ Get transaction trends over time.
   "trends": [
     {
       "date": "2023-01-01",
-      "income": 500.0,
-      "expense": 200.0,
-      "transfer": 0.0,
-      "net": 300.0
+      "income": 500.00,
+      "expense": 200.00,
+      "transfer": 0.00,
+      "net": 300.00
     },
     {
       "date": "2023-01-02",
-      "income": 0.0,
-      "expense": 150.0,
-      "transfer": 100.0,
-      "net": -150.0
+      "income": 0.00,
+      "expense": 150.00,
+      "transfer": 100.00,
+      "net": -150.00
     }
   ]
 }
@@ -1289,13 +1313,13 @@ Get a summary of all accounts with balances and credit utilization.
 **Success Response**: `200 OK`
 ```json
 {
-  "total_balance": 8000.0,
-  "available_credit": 2000.0,
-  "credit_utilization": 60.0,
+  "total_balance": 8000.00,
+  "available_credit": 2000.00,
+  "credit_utilization": 60.00,
   "by_account_type": {
-    "bank_account": 5000.0,
-    "credit_card": 3000.0,
-    "other": 0.0
+    "bank_account": 5000.00,
+    "credit_card": 3000.00,
+    "other": 0.00
   },
   "accounts": [
     {
@@ -1303,21 +1327,24 @@ Get a summary of all accounts with balances and credit utilization.
       "uuid": "123e4567-e89b-12d3-a456-426614174000",
       "name": "Main Checking",
       "type": "bank_account",
-      "balance": 5000.0
+      "balance": 5000.00
     },
     {
       "account_id": 2,
       "uuid": "123e4567-e89b-12d3-a456-426614174001",
       "name": "Credit Card",
       "type": "credit_card",
-      "balance": 3000.0,
-      "payable_balance": 2000.0,
-      "limit": 5000.0,
-      "utilization_percentage": 60.0
+      "balance": 3000.00,
+      "payable_balance": 2000.00,
+      "limit": 5000.00,
+      "utilization_percentage": 60.00
     }
   ]
 }
 ```
+
+**Notes**:
+- All monetary values use decimal precision with two decimal places
 
 **Error Responses**:
 - `401 Unauthorized` - Not authenticated

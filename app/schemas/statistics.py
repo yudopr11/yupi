@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, UUID4
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+from decimal import Decimal
 
 class PeriodInfo(BaseModel):
     """
@@ -14,10 +15,10 @@ class FinancialTotals(BaseModel):
     """
     Schema for financial totals
     """
-    income: float = Field(0.0, description="Total income in the period")
-    expense: float = Field(0.0, description="Total expenses in the period")
-    transfer: float = Field(0.0, description="Total transfers in the period")
-    net: float = Field(0.0, description="Net balance (income - expense)")
+    income: Decimal = Field(Decimal('0.0'), description="Total income in the period")
+    expense: Decimal = Field(Decimal('0.0'), description="Total expenses in the period")
+    transfer: Decimal = Field(Decimal('0.0'), description="Total transfers in the period")
+    net: Decimal = Field(Decimal('0.0'), description="Net balance (income - expense)")
 
 class FinancialSummaryResponse(BaseModel):
     """
@@ -47,8 +48,8 @@ class CategoryDistributionItem(BaseModel):
     """
     name: str = Field(..., description="Category name")
     uuid: str = Field(..., description="Category UUID")
-    total: float = Field(..., description="Total amount for this category")
-    percentage: Optional[float] = Field(None, description="Percentage of total (0-100)")
+    total: Decimal = Field(..., description="Total amount for this category")
+    percentage: Optional[Decimal] = Field(None, description="Percentage of total (0-100)")
 
 class CategoryDistributionResponse(BaseModel):
     """
@@ -81,7 +82,7 @@ class CategoryDistributionResponse(BaseModel):
     """
     period: PeriodInfo
     transaction_type: str = Field(..., description="Type of transactions analyzed")
-    total: float = Field(..., description="Total amount for all categories")
+    total: Decimal = Field(..., description="Total amount for all categories")
     categories: List[CategoryDistributionItem]
 
 class TrendPeriodInfo(PeriodInfo):
@@ -95,10 +96,10 @@ class TrendDataPoint(BaseModel):
     Schema for a single data point in trends
     """
     date: str = Field(..., description="Date string in YYYY-MM-DD format")
-    income: float = Field(0.0, description="Income amount for this date")
-    expense: float = Field(0.0, description="Expense amount for this date")
-    transfer: float = Field(0.0, description="Transfer amount for this date")
-    net: float = Field(0.0, description="Net amount (income - expense)")
+    income: Decimal = Field(Decimal('0.0'), description="Income amount for this date")
+    expense: Decimal = Field(Decimal('0.0'), description="Expense amount for this date")
+    transfer: Decimal = Field(Decimal('0.0'), description="Transfer amount for this date")
+    net: Decimal = Field(Decimal('0.0'), description="Net amount (income - expense)")
 
 class TransactionTrendsResponse(BaseModel):
     """
@@ -137,9 +138,9 @@ class AccountTypeBalances(BaseModel):
     """
     Schema for balances by account type
     """
-    bank_account: float = Field(0.0, description="Total balance in bank accounts")
-    credit_card: float = Field(0.0, description="Total balance in credit cards")
-    other: float = Field(0.0, description="Total balance in other accounts")
+    bank_account: Decimal = Field(Decimal('0.0'), description="Total balance in bank accounts")
+    credit_card: Decimal = Field(Decimal('0.0'), description="Total balance in credit cards")
+    other: Decimal = Field(Decimal('0.0'), description="Total balance in other accounts")
 
 class AccountSummaryItem(BaseModel):
     """
@@ -149,10 +150,10 @@ class AccountSummaryItem(BaseModel):
     uuid: str = Field(..., description="Account UUID")
     name: str = Field(..., description="Account name")
     type: str = Field(..., description="Account type")
-    balance: float = Field(..., description="Current balance")
-    payable_balance: Optional[float] = Field(None, description="Payable balance (for credit cards)")
-    limit: Optional[float] = Field(None, description="Credit limit (for credit cards)")
-    utilization_percentage: Optional[float] = Field(None, description="Credit utilization percentage (for credit cards)")
+    balance: Decimal = Field(..., description="Current balance")
+    payable_balance: Optional[Decimal] = Field(None, description="Payable balance (for credit cards)")
+    limit: Optional[Decimal] = Field(None, description="Credit limit (for credit cards)")
+    utilization_percentage: Optional[Decimal] = Field(None, description="Credit utilization percentage (for credit cards)")
 
 class AccountSummaryResponse(BaseModel):
     """
@@ -189,8 +190,8 @@ class AccountSummaryResponse(BaseModel):
             ]
         }
     """
-    total_balance: float = Field(..., description="Total balance across all accounts")
-    available_credit: float = Field(..., description="Available credit across all credit cards")
-    credit_utilization: float = Field(..., description="Overall credit utilization percentage")
+    total_balance: Decimal = Field(..., description="Total balance across all accounts")
+    available_credit: Decimal = Field(..., description="Available credit across all credit cards")
+    credit_utilization: Decimal = Field(..., description="Overall credit utilization percentage")
     by_account_type: AccountTypeBalances = Field(..., description="Balances grouped by account type")
     accounts: List[AccountSummaryItem] = Field(..., description="List of accounts with balance details") 

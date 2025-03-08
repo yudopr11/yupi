@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import func, case, or_, desc
-from typing import List, Optional
+from typing import List, Optional, Union
 import uuid
 from datetime import datetime, timedelta, UTC
 import calendar
+from decimal import Decimal
 
 from app.utils.database import get_db
 from app.utils.auth import get_current_user
@@ -149,6 +150,7 @@ def get_account_balance(account_id: int, db: Session = Depends(get_db), current_
         "total_expenses": balance_details["total_expenses"],
         "total_transfers_in": balance_details["total_transfers_in"],
         "total_transfers_out": balance_details["total_transfers_out"],
+        "total_transfer_fees": balance_details["total_transfer_fees"],
         "account": account
     }
     
@@ -188,6 +190,11 @@ def get_accounts(
         balance_details = calculate_account_balance(db, account.account_id)
         account_with_balance = AccountWithBalance.model_validate(account)
         account_with_balance.balance = balance_details["balance"]
+        account_with_balance.total_income = balance_details["total_income"]
+        account_with_balance.total_expenses = balance_details["total_expenses"]
+        account_with_balance.total_transfers_in = balance_details["total_transfers_in"]
+        account_with_balance.total_transfers_out = balance_details["total_transfers_out"]
+        account_with_balance.total_transfer_fees = balance_details["total_transfer_fees"]
         
         # Add payable_balance for credit cards
         if account.type == AccountType.CREDIT_CARD and account.limit is not None:
@@ -290,6 +297,7 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
         transaction.transaction_type,
         transaction.destination_account_id,
         transaction.account_id,
+        transaction.transfer_fee,
         db,
         current_user.id
     )
@@ -356,6 +364,7 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
         transaction.transaction_type,
         transaction.destination_account_id,
         transaction.account_id,
+        transaction.transfer_fee,
         db,
         current_user.id
     )
@@ -523,16 +532,16 @@ def get_financial_summary(
             "period_type": period
         },
         "totals": {
-            "income": 0.0,
-            "expense": 0.0,
-            "transfer": 0.0,
-            "net": 0.0
+            "income": Decimal('0.0'),
+            "expense": Decimal('0.0'),
+            "transfer": Decimal('0.0'),
+            "net": Decimal('0.0')
         }
     }
     
     for row in results:
         transaction_type, total = row
-        summary["totals"][transaction_type.value] = float(total)
+        summary["totals"][transaction_type.value] = total
     
     # Calculate net
     summary["totals"]["net"] = summary["totals"]["income"] - summary["totals"]["expense"]
@@ -606,14 +615,13 @@ def get_category_distribution(
         Transaction.transaction_type == tx_type
     )
     
-    total_result = total_query.scalar() or 0.0
-    total = float(total_result)
+    total_result = total_query.scalar() or Decimal('0.0')
+    total = total_result
     
     # Process the results
     categories = []
     for name, uuid, category_total in results:
-        category_total = float(category_total)
-        percentage = (category_total / total * 100) if total > 0 else 0.0
+        percentage = (category_total / total * Decimal('100')) if total > Decimal('0') else Decimal('0.0')
         
         categories.append({
             "name": name,
@@ -710,13 +718,13 @@ def get_transaction_trends(
         if date_str not in trends_data:
             trends_data[date_str] = {
                 "date": date_str,
-                "income": 0.0,
-                "expense": 0.0,
-                "transfer": 0.0,
-                "net": 0.0
+                "income": Decimal('0.0'),
+                "expense": Decimal('0.0'),
+                "transfer": Decimal('0.0'),
+                "net": Decimal('0.0')
             }
         
-        trends_data[date_str][tx_type.value] = float(total)
+        trends_data[date_str][tx_type.value] = total
         # Update the net value
         trends_data[date_str]["net"] = trends_data[date_str]["income"] - trends_data[date_str]["expense"]
     
@@ -746,25 +754,42 @@ def get_account_summary(
         current_user: Current authenticated user
         
     Returns:
-        Summary of all accounts with total balance, credit utilization, and balance by account type
+        Summary of all accounts with total balance, credit utilization, and balance by account type.
+        Accounts are sorted by the time of the latest transaction using that account.
     """
     # Get all accounts for the user
     accounts = db.query(AccountModel).filter(AccountModel.user_id == current_user.id).all()
     
-    # For each account, calculate the balance
+    # For each account, calculate the balance and get latest transaction date
     account_summaries = []
-    total_balance = 0.0
-    total_available_credit = 0.0
-    total_credit_limit = 0.0
+    total_balance = Decimal('0.0')
+    total_available_credit = Decimal('0.0')
+    total_credit_limit = Decimal('0.0')
     balances_by_type = {
-        "bank_account": 0.0,
-        "credit_card": 0.0,
-        "other": 0.0
+        "bank_account": Decimal('0.0'),
+        "credit_card": Decimal('0.0'),
+        "other": Decimal('0.0')
     }
+    
+    accounts_with_latest_tx = []
     
     for account in accounts:
         balance_info = calculate_account_balance(db, account.account_id, current_user.id)
         balance = balance_info["balance"]
+        
+        # Find the latest transaction date for this account (as source or destination)
+        latest_tx_subquery = db.query(
+            func.max(Transaction.transaction_date)
+        ).filter(
+            or_(
+                Transaction.account_id == account.account_id,
+                Transaction.destination_account_id == account.account_id
+            ),
+            Transaction.user_id == current_user.id
+        ).scalar()
+        
+        # Default to account creation date if no transactions
+        latest_tx_date = latest_tx_subquery or account.created_at
         
         # Add to total balance based on account type
         if account.type == "credit_card":
@@ -779,10 +804,10 @@ def get_account_summary(
                 "balance": balance,
                 "payable_balance": payable_balance,
                 "limit": account.limit,
-                "utilization_percentage": (payable_balance / account.limit * 100) if account.limit else 0.0
+                "utilization_percentage": (payable_balance / account.limit * Decimal('100')) if account.limit else Decimal('0.0')
             }
             
-            total_available_credit += max(0, account.limit - payable_balance)
+            total_available_credit += max(Decimal('0'), account.limit - payable_balance)
             total_credit_limit += account.limit
             balances_by_type["credit_card"] += balance
             
@@ -799,13 +824,18 @@ def get_account_summary(
             if account.type in balances_by_type:
                 balances_by_type[account.type] += balance
         
-        account_summaries.append(account_summary)
+        # Store account with its latest transaction date
+        accounts_with_latest_tx.append((account_summary, latest_tx_date))
         total_balance += balance
     
+    # Sort accounts by latest transaction date (newest first)
+    accounts_with_latest_tx.sort(key=lambda x: x[1], reverse=True)
+    account_summaries = [account for account, _ in accounts_with_latest_tx]
+    
     # Calculate credit utilization percentage
-    credit_utilization = 0.0
-    if total_credit_limit > 0:
-        credit_utilization = (total_credit_limit - total_available_credit) / total_credit_limit * 100
+    credit_utilization = Decimal('0.0')
+    if total_credit_limit > Decimal('0'):
+        credit_utilization = (total_credit_limit - total_available_credit) / total_credit_limit * Decimal('100')
     
     return {
         "total_balance": total_balance,
@@ -865,6 +895,7 @@ def create_bulk_transactions(
                 tx_data.transaction_type,
                 tx_data.destination_account_id,
                 tx_data.account_id,
+                tx_data.transfer_fee,
                 db,
                 current_user.id
             )

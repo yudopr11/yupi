@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, Float, Enum, ForeignKey, TypeDecorator
+from sqlalchemy import Column, String, Integer, Text, Float, Enum, ForeignKey, TypeDecorator, DECIMAL
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from sqlalchemy.sql.expression import text
 from sqlalchemy.orm import relationship
@@ -13,6 +13,7 @@ class AccountType(str, enum.Enum):
 # Custom type decorator to handle enum values properly
 class EnumAsString(TypeDecorator):
     impl = String
+    cache_ok = True  # Safe to use in cache keys as enum values don't change
     
     def __init__(self, enumtype, *args, **kwargs):
         super(EnumAsString, self).__init__(*args, **kwargs)
@@ -38,7 +39,7 @@ class Account(Base):
     name = Column(String, nullable=False)
     type = Column(EnumAsString(AccountType), nullable=False)
     description = Column(Text)
-    limit = Column(Float)
+    limit = Column(DECIMAL(10, 2))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'), onupdate=text('now()'))

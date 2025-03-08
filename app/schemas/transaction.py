@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, UUID4
 from typing import Optional, List
 from datetime import datetime
+from decimal import Decimal
 from app.models.transaction import TransactionType
 from app.schemas.account import Account
 from app.schemas.category import Category
@@ -9,11 +10,12 @@ from app.schemas.common import DeletedItemInfo, DeleteResponse
 class TransactionBase(BaseModel):
     transaction_date: datetime
     description: str
-    amount: float
+    amount: Decimal
     transaction_type: TransactionType
     account_id: int
     category_id: Optional[int] = None
     destination_account_id: Optional[int] = None
+    transfer_fee: Optional[Decimal] = Field(default=Decimal('0.0'), description="Transfer fee amount, only applicable for transfer transactions")
 
 class TransactionCreate(TransactionBase):
     pass
@@ -40,7 +42,7 @@ class DeletedTransactionInfo(DeletedItemInfo):
     Schema for deleted transaction information
     """
     description: str = Field(..., description="Description of the deleted transaction")
-    amount: float = Field(..., description="Amount of the deleted transaction")
+    amount: Decimal = Field(..., description="Amount of the deleted transaction")
     transaction_type: str = Field(..., description="Type of the deleted transaction")
 
 class DeleteTransactionResponse(DeleteResponse[DeletedTransactionInfo]):
@@ -63,11 +65,12 @@ class DeleteTransactionResponse(DeleteResponse[DeletedTransactionInfo]):
 
 class AccountBalance(BaseModel):
     account_id: int
-    balance: float
-    total_income: float
-    total_expenses: float
-    total_transfers_in: float
-    total_transfers_out: float
+    balance: Decimal
+    total_income: Decimal
+    total_expenses: Decimal
+    total_transfers_in: Decimal
+    total_transfers_out: Decimal
+    total_transfer_fees: Decimal
     account: Account
 
 class AccountBalanceResponse(BaseModel):

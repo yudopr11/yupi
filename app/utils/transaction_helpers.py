@@ -4,6 +4,11 @@ from typing import Dict, Any, Tuple, Union, Optional, List
 import uuid
 from datetime import datetime, timedelta
 import calendar
+from sqlalchemy import Column, String, Integer, Text, Float, ForeignKey, Enum, DECIMAL
+from sqlalchemy.sql import func
+from sqlalchemy import or_, and_, desc
+from sqlalchemy.exc import SQLAlchemyError
+from decimal import Decimal
 
 from app.models.account import Account, AccountType
 from app.models.category import Category, CategoryType
@@ -99,6 +104,7 @@ def validate_transfer(
     transaction_type: TransactionType,
     destination_account_id: Optional[int], 
     source_account_id: int,
+    transfer_fee: float,
     db: Session, 
     user_id: int
 ) -> Optional[Account]:
@@ -109,6 +115,7 @@ def validate_transfer(
         transaction_type: Type of the transaction
         destination_account_id: ID of destination account
         source_account_id: ID of source account
+        transfer_fee: Fee for the transfer transaction
         db: Database session
         user_id: ID of the user
         
@@ -118,13 +125,27 @@ def validate_transfer(
     Raises:
         HTTPException: If transfer validation fails
     """
+    # For non-transfer transactions, ensure transfer fee is zero
     if transaction_type != TransactionType.TRANSFER:
+        if transfer_fee > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transfer fee can only be applied to transfer transactions"
+            )
         return None
         
+    # For transfer transactions, validate required fields
     if not destination_account_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Destination account is required for transfers"
+        )
+    
+    # Validate transfer fee is not negative
+    if transfer_fee < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transfer fee cannot be negative"
         )
     
     # Prevent using the same account as both source and destination
@@ -349,7 +370,7 @@ def calculate_account_balance(db: Session, account_id: int, user_id: int = None)
         
     Returns:
         Dictionary containing balance details (total_income, total_expenses, 
-        total_transfers_in, total_transfers_out, overall balance, and payable_balance for credit cards)
+        total_transfers_in, total_transfers_out, total_transfer_fees, overall balance, and payable_balance for credit cards)
     """
     from sqlalchemy import func
     from app.models.transaction import Transaction, TransactionType
@@ -373,36 +394,43 @@ def calculate_account_balance(db: Session, account_id: int, user_id: int = None)
         )
     
     # Calculate income
-    income = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
+    income = db.query(func.coalesce(func.sum(Transaction.amount), Decimal('0.0'))).filter(
         Transaction.account_id == account_id,
         Transaction.transaction_type == TransactionType.INCOME
     ).scalar()
     
     # Calculate expenses
-    expenses = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
+    expenses = db.query(func.coalesce(func.sum(Transaction.amount), Decimal('0.0'))).filter(
         Transaction.account_id == account_id,
         Transaction.transaction_type == TransactionType.EXPENSE
     ).scalar()
     
     # Calculate transfers
-    transfers_out = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
+    transfers_out = db.query(func.coalesce(func.sum(Transaction.amount), Decimal('0.0'))).filter(
         Transaction.account_id == account_id,
         Transaction.transaction_type == TransactionType.TRANSFER
     ).scalar()
     
-    transfers_in = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(
+    transfers_in = db.query(func.coalesce(func.sum(Transaction.amount), Decimal('0.0'))).filter(
         Transaction.destination_account_id == account_id,
         Transaction.transaction_type == TransactionType.TRANSFER
     ).scalar()
     
-    # Calculate overall balance
-    balance = income - expenses - transfers_out + transfers_in
+    # Calculate transfer fees
+    transfer_fees = db.query(func.coalesce(func.sum(Transaction.transfer_fee), Decimal('0.0'))).filter(
+        Transaction.account_id == account_id,
+        Transaction.transaction_type == TransactionType.TRANSFER
+    ).scalar()
+    
+    # Calculate overall balance: income - expenses - transfers_out - transfer_fees + transfers_in
+    balance = income - expenses - transfers_out - transfer_fees + transfers_in
     
     result = {
         "total_income": income,
         "total_expenses": expenses,
         "total_transfers_in": transfers_in,
         "total_transfers_out": transfers_out,
+        "total_transfer_fees": transfer_fees,
         "balance": balance
     }
     

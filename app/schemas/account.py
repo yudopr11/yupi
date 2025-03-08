@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, UUID4
 from typing import Optional
 from datetime import datetime
+from decimal import Decimal
 from app.models.account import AccountType
 from app.schemas.common import DeletedItemInfo, DeleteResponse
 
@@ -8,7 +9,7 @@ class AccountBase(BaseModel):
     name: str
     type: AccountType
     description: Optional[str] = None
-    limit: Optional[float] = None
+    limit: Optional[Decimal] = None
 
 class AccountCreate(AccountBase):
     pass
@@ -24,8 +25,13 @@ class Account(AccountBase):
         from_attributes = True
 
 class AccountWithBalance(Account):
-    balance: float = 0.0
-    payable_balance: Optional[float] = None
+    balance: Decimal = Decimal('0.0')
+    payable_balance: Optional[Decimal] = None
+    total_income: Optional[Decimal] = None
+    total_expenses: Optional[Decimal] = None
+    total_transfers_in: Optional[Decimal] = None
+    total_transfers_out: Optional[Decimal] = None
+    total_transfer_fees: Optional[Decimal] = None
 
 class AccountResponse(BaseModel):
     data: Account

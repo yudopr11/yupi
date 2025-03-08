@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, Float, ForeignKey, Enum
+from sqlalchemy import Column, String, Integer, Text, Float, ForeignKey, Enum, DECIMAL
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from sqlalchemy.sql.expression import text
 from sqlalchemy.orm import relationship
@@ -18,8 +18,9 @@ class Transaction(Base):
     uuid = Column(String, nullable=False, unique=True)
     transaction_date = Column(TIMESTAMP(timezone=True), nullable=False)
     description = Column(Text, nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(DECIMAL(10, 2), nullable=False)
     transaction_type = Column(EnumAsString(TransactionType), nullable=False)
+    transfer_fee = Column(DECIMAL(10, 2), nullable=False, default=0.0)
     
     account_id = Column(Integer, ForeignKey("accounts.account_id", ondelete="CASCADE"), nullable=False)
     category_id = Column(Integer, ForeignKey("categories.category_id", ondelete="SET NULL"), nullable=True)
