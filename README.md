@@ -1,6 +1,6 @@
 # Yupi - yudopr API
 
-A FastAPI-based API service that provides various utility endpoints including blog management, bill splitting analysis, and user authentication.
+A FastAPI-based API service that provides various utility endpoints including blog management, bill splitting analysis, transaction management, and user authentication.
 
 ## Features
 
@@ -43,6 +43,15 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - Filtering by tags and published status
   - Calculated reading time
   - URL-friendly slugs
+
+- **Transaction Management**
+  - Create, read, update, delete financial transactions
+  - Support for various transaction types (income, expense, transfer)
+  - Transfer fee handling for transfer transactions
+  - Transaction categorization
+  - Account balance tracking
+  - Transaction filtering and searching capabilities
+  - Comprehensive financial reporting
 
 - **Bill Splitting Analysis**
   - Upload bill images for analysis
