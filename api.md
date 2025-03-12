@@ -1267,7 +1267,7 @@ Get transaction trends over time.
 - `start_date` - Optional start date for period (if not provided, calculated based on period)
 - `end_date` - Optional end date for period (if not provided, calculated based on period)
 - `period` - Period to analyze (options: day, week, month, year, all; default: month)
-- `group_by` - How to group results (options: day, week, month; default: day)
+- `group_by` - How to group results (options: day, week, month, year; default: day)
 - `transaction_types` - Types of transactions to include (default: ["income", "expense"])
 
 **Success Response**: `200 OK`
