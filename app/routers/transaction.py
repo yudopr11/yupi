@@ -658,7 +658,7 @@ def get_transaction_trends(
         start_date: Optional start date for custom date range
         end_date: Optional end date for custom date range
         period: Period to analyze trends for ('day', 'week', 'month', 'year', 'all')
-        group_by: How to group results ('day', 'week', 'month')
+        group_by: How to group results ('day', 'week', 'month', 'year')
         transaction_types: Types of transactions to include in the analysis
         db: Database session
         current_user: Current authenticated user
@@ -674,8 +674,8 @@ def get_transaction_trends(
             raise HTTPException(status_code=400, detail=str(e))
     
     # Validate group_by parameter
-    if group_by not in ("day", "week", "month"):
-        raise HTTPException(status_code=400, detail="Invalid group_by parameter. Must be 'day', 'week', or 'month'")
+    if group_by not in ("day", "week", "month", "year"):
+        raise HTTPException(status_code=400, detail="Invalid group_by parameter. Must be 'day', 'week', 'month', or 'year'")
     
     # Validate transaction_types
     for tx_type in transaction_types:
@@ -692,6 +692,8 @@ def get_transaction_trends(
         date_trunc = func.date_trunc('week', Transaction.transaction_date)
     elif group_by == "month":
         date_trunc = func.date_trunc('month', Transaction.transaction_date)
+    elif group_by == "year":
+        date_trunc = func.date_trunc('year', Transaction.transaction_date)
     
     # Query to get totals by date and transaction type
     query = db.query(
