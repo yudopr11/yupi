@@ -9,6 +9,8 @@ This document provides detailed information about all available endpoints in the
   - [Login](#login)
   - [Refresh Token](#refresh-token)
   - [Logout](#logout)
+  - [Forgot Password](#forgot-password)
+  - [Reset Password](#reset-password)
   - [Get All Users](#get-all-users)
   - [Delete User](#delete-user)
 - [Blog Management](#blog-management)
@@ -131,6 +133,67 @@ Log out by clearing the refresh token cookie.
   "message": "Successfully logged out"
 }
 ```
+
+### Forgot Password
+
+Request a password reset link sent via email.
+
+**URL**: `/auth/forgot-password`  
+**Method**: `POST`  
+**Auth required**: No  
+
+**Request Body**:
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Success Response**: `200 OK`
+```json
+{
+  "message": "If the email exists in our system, a reset token will be sent."
+}
+```
+
+**Notes**:
+- For security reasons, the API returns the same response whether the email exists or not
+- If the email exists in the system, a reset token will be sent
+- The reset token expires after the time specified in PASSWORD_RESET_TOKEN_EXPIRE_MINUTES (default: 15 minutes)
+
+**Error Responses**:
+- `422 Unprocessable Entity` - Validation error (invalid email format)
+
+### Reset Password
+
+Reset a user's password using a valid reset token.
+
+**URL**: `/auth/reset-password`  
+**Method**: `POST`  
+**Auth required**: No  
+
+**URL Parameters**:
+- `token` - The reset token received via email
+
+**Request Body**:
+```json
+{
+  "token": "string",
+  "new_password": "new_password"
+}
+```
+
+**Success Response**: `200 OK`
+```json
+{
+  "message": "Password has been reset successfully"
+}
+```
+
+**Error Responses**:
+- `400 Bad Request` - Invalid or expired token
+- `404 Not Found` - User not found
+- `422 Unprocessable Entity` - Validation error (password requirements not met)
 
 ### Get All Users
 

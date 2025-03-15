@@ -216,7 +216,7 @@ async def forgot_password(
     )
     
     # Return success message (same whether email exists or not for security)
-    return {"message": "If the email exists in our system, a reset link has been sent."}
+    return {"message": "If the email exists in our system, a reset token will be sent."}
 
 @router.post(
     "/reset-password",
