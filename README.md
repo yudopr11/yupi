@@ -14,6 +14,11 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - Role-based access control (User/Superuser)
   - Automatic token refresh
   - Secure logout mechanism
+  - Password recovery system
+    - "Forgot Password" email-based reset flow
+    - Secure reset token generation and validation
+    - Time-limited reset links
+    - Email notifications for password reset requests
 
 - **Blog Management**
   - Create, read, update, delete blog posts
@@ -116,6 +121,7 @@ SECRET_KEY=your-super-secret-key-that-should-be-very-long-and-random
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30  # Short-lived access tokens
 REFRESH_TOKEN_EXPIRE_DAYS=30    # Long-lived refresh tokens in HTTP-only cookies
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=15  # Short-live password reset tokens
 
 # Superuser credentials
 SUPERUSER_USERNAME=admin
@@ -124,6 +130,11 @@ SUPERUSER_PASSWORD=admin123
 
 # OpenAI API Key
 OPENAI_API_KEY=your_openai_api_key
+
+# Email configuration
+MAIL_USERNAME=your_email@example.com
+MAIL_PASSWORD=your_email_app_password
+MAIL_FROM=your_email@example.com
 
 # API Info
 API_TITLE=yupi - yudopr API
@@ -136,9 +147,13 @@ Important: Make sure to:
 - Use strong, unique values for SECRET_KEY and passwords in production
 - Keep your OpenAI API key secure
 - Update the CORS settings if needed for your frontend
+- Configure valid email credentials for password reset functionality
+  - In this API, I use my Gmail, use an App Password instead of account password
+  - Ensure proper SMTP settings for your email provider
 - Adjust token expiration times based on your security requirements:
   - ACCESS_TOKEN_EXPIRE_MINUTES: Short-lived tokens (e.g., 30 minutes)
   - REFRESH_TOKEN_EXPIRE_DAYS: Long-lived tokens (e.g., 30 days)
+  - PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: Short-lived tokens (e.g., 15 minutes)
 - Enable HTTPS in production for secure cookie handling
 
 5. **Database Setup**
@@ -197,15 +212,6 @@ The system uses the following approach for semantic search:
 2. **Vector Storage**: Embeddings are stored as float arrays in PostgreSQL.
 3. **Similarity Calculation**: When a search query is submitted, it's embedded and compared to post embeddings using cosine similarity.
 4. **Ranked Results**: Posts are ranked by semantic similarity to the query, returning the most relevant content.
-
-### Tokenization
-
-The system uses the `tiktoken` library (the same tokenizer used by OpenAI models) to preprocess text before generating embeddings. This provides:
-
-- Consistent tokenization between the API and OpenAI's embedding models
-- Improved handling of special characters, punctuation, and whitespace
-- Better performance for short queries through token-based threshold adjustment
-- Query expansion for very short queries to improve search relevance
 
 ### Using RAG Search
 
