@@ -57,6 +57,19 @@ class TokenPayload(BaseModel):
     exp: int = Field(..., description="Expiration time of the token")
     type: str = Field(..., description="Type of the token")
 
+class ForgotPasswordRequest(BaseModel):
+    """
+    Schema for requesting a password reset
+    """
+    email: EmailStr = Field(..., description="Email address to send reset link to", example="user@example.com")
+
+class ResetPasswordRequest(BaseModel):
+    """
+    Schema for resetting password with token
+    """
+    token: str = Field(..., description="Password reset token received in email")
+    new_password: str = Field(..., description="New password", example="newStrongPassword123")
+
 class DeletedUserInfo(DeletedItemInfo):
     """
     Schema for deleted user information

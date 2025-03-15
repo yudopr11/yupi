@@ -15,6 +15,7 @@ SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -58,6 +59,14 @@ def create_tokens(username: str) -> Tuple[str, str]:
     )
     
     return access_token, refresh_token
+
+def create_password_reset_token(email: str) -> str:
+    """Create a password reset token"""
+    return create_token(
+        data={"sub": email},
+        expires_delta=timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+        token_type="reset"
+    )
 
 def verify_token(token: str, token_type: str) -> TokenPayload:
     """Verify a token and return its payload"""

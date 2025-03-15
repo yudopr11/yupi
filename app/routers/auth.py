@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import Annotated, List
+from pydantic import EmailStr
 
 from app.utils.database import get_db
 from app.utils.auth import (
@@ -12,11 +13,21 @@ from app.utils.auth import (
     create_token,
     verify_token,
     get_current_superuser,
+    create_password_reset_token,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS
 )
+from app.utils.email import send_password_reset_email
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse, Token, DeleteUserResponse, DeletedUserInfo
+from app.schemas.user import (
+    UserCreate, 
+    UserResponse, 
+    Token, 
+    DeleteUserResponse, 
+    DeletedUserInfo,
+    ForgotPasswordRequest,
+    ResetPasswordRequest
+)
 from app.schemas.error import (
     ErrorDetail, 
     UNAUTHORIZED_ERROR, 
@@ -169,6 +180,83 @@ async def logout(response: Response):
         samesite="lax"
     )
     return {"message": "Successfully logged out"}
+
+@router.post(
+    "/forgot-password",
+    responses={
+        200: {"description": "Password reset email sent"},
+        404: {"model": ErrorDetail, "description": "Email not found"},
+        422: {"model": ErrorDetail, "description": "Validation error"}
+    }
+)
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Request password reset
+    
+    This endpoint sends a password reset link to the provided email address
+    if it's associated with a registered user account.
+    """
+    # Check if user with this email exists
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        return {"message": "If the email exists in our system, a reset link has been sent."}
+    
+    # Generate password reset token
+    reset_token = create_password_reset_token(user.email)
+    
+    # Send email with reset link
+    await send_password_reset_email(
+        email=user.email,
+        token=reset_token,
+        background_tasks=background_tasks
+    )
+    
+    # Return success message (same whether email exists or not for security)
+    return {"message": "If the email exists in our system, a reset link has been sent."}
+
+@router.post(
+    "/reset-password",
+    responses={
+        200: {"description": "Password reset successful"},
+        401: {"model": ErrorDetail, "description": "Invalid or expired token"},
+        404: {"model": ErrorDetail, "description": "User not found"},
+        422: {"model": ErrorDetail, "description": "Validation error"}
+    }
+)
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Reset password using token
+    
+    This endpoint allows a user to reset their password using a valid
+    reset token received via email.
+    """
+    # Verify token
+    try:
+        token_data = verify_token(request.token, "reset")
+        email = token_data.sub
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired password reset token"
+        )
+    
+    # Find user by email
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        NOT_FOUND_ERROR("User").raise_exception()
+    
+    # Update user's password
+    user.password = get_password_hash(request.new_password)
+    db.commit()
+    
+    return {"message": "Password has been reset successfully"}
 
 @router.delete(
     "/users/{user_id}", 

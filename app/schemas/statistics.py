@@ -89,7 +89,7 @@ class TrendPeriodInfo(PeriodInfo):
     """
     Schema for trend period information with group_by
     """
-    group_by: str = Field(..., description="Grouping level (day, week, month)")
+    group_by: str = Field(..., description="Grouping level (day, week, month, year)")
 
 class TrendDataPoint(BaseModel):
     """
