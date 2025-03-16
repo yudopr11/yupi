@@ -8,7 +8,7 @@ import calendar
 from decimal import Decimal
 
 from app.utils.database import get_db
-from app.utils.auth import get_current_user
+from app.utils.auth import get_current_user, get_non_guest_user
 from app.utils.transaction_helpers import (
     validate_account, 
     validate_category, 
@@ -47,7 +47,7 @@ router = APIRouter(
 
 # Account endpoints
 @router.post("/accounts", response_model=AccountResponse)
-def create_account(account: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_account(account: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Create and validate account object
     new_account = prepare_account_for_db(account.model_dump(), current_user.id)
     
@@ -93,7 +93,7 @@ def create_account(account: AccountCreate, db: Session = Depends(get_db), curren
     return {"data": new_account, "message": "Account created successfully"}
 
 @router.put("/accounts/{account_id}", response_model=AccountResponse)
-def update_account(account_id: int, account: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_account(account_id: int, account: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate that account exists and belongs to user
     existing_account = validate_account(db, account_id, current_user.id)
     
@@ -113,7 +113,7 @@ def update_account(account_id: int, account: AccountCreate, db: Session = Depend
     return {"data": existing_account, "message": "Account updated successfully"}
 
 @router.delete("/accounts/{account_id}", response_model=DeleteAccountResponse)
-def delete_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate account
     account = validate_account(db, account_id, current_user.id)
     
@@ -205,7 +205,7 @@ def get_accounts(
 
 # Category endpoints
 @router.post("/categories", response_model=CategoryResponse)
-def create_category(category: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_category(category: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Create and validate category object
     new_category = prepare_category_for_db(category.model_dump(), current_user.id)
     
@@ -216,7 +216,7 @@ def create_category(category: CategoryCreate, db: Session = Depends(get_db), cur
     return {"data": new_category, "message": "Category created successfully"}
 
 @router.put("/categories/{category_id}", response_model=CategoryResponse)
-def update_category(category_id: int, category: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_category(category_id: int, category: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate category
     existing_category = validate_category(db, category_id, current_user.id)
     
@@ -229,7 +229,7 @@ def update_category(category_id: int, category: CategoryCreate, db: Session = De
     return {"data": existing_category, "message": "Category updated successfully"}
 
 @router.delete("/categories/{category_id}", response_model=DeleteCategoryResponse)
-def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate category
     category = validate_category(db, category_id, current_user.id)
     
@@ -268,7 +268,7 @@ def get_categories(
 
 # Transaction endpoints
 @router.post("/transactions", response_model=TransactionResponse)
-def create_transaction(transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_transaction(transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate account exists and belongs to user
     account = validate_account(db, transaction.account_id, current_user.id)
     
@@ -311,7 +311,7 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
     return {"data": new_transaction, "message": "Transaction created successfully"}
 
 @router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
-def update_transaction(transaction_id: int, transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_transaction(transaction_id: int, transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Check if transaction exists and belongs to user
     transaction_query = db.query(Transaction).filter(
         Transaction.transaction_id == transaction_id,
@@ -375,7 +375,7 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
     return {"data": existing_transaction, "message": "Transaction updated successfully"}
 
 @router.delete("/transactions/{transaction_id}", response_model=DeleteTransactionResponse)
-def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Find transaction
     transaction_query = db.query(Transaction).filter(
         Transaction.transaction_id == transaction_id,

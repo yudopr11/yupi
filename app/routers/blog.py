@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional, Literal
 from app.utils.database import get_db
-from app.utils.auth import get_current_user, get_current_superuser
+from app.utils.auth import get_non_guest_user, get_non_guest_superuser
 from app.models.post import Post
 from app.models.user import User
 from app.schemas.post import PostCreate, PostResponse, PostList, DeletedPostInfo, DeletePostResponse, PaginatedPostsResponse
@@ -169,12 +169,13 @@ async def get_post(
     response_model=PostResponse,
     responses={
         401: {"model": ErrorDetail, "description": "Not authenticated"},
+        403: {"model": ErrorDetail, "description": "Not enough permissions or guest user"},
         422: {"model": ErrorDetail, "description": "Validation error"}
     }
 )
 async def create_post(
     post: PostCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_non_guest_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -246,7 +247,7 @@ async def create_post(
     response_model=PostResponse,
     responses={
         401: {"model": ErrorDetail, "description": "Not authenticated"},
-        403: {"model": ErrorDetail, "description": "Not enough permissions"},
+        403: {"model": ErrorDetail, "description": "Not enough permissions or guest user"},
         404: {"model": ErrorDetail, "description": "Post not found"},
         422: {"model": ErrorDetail, "description": "Validation error"}
     }
@@ -254,7 +255,7 @@ async def create_post(
 async def update_post(
     post_id: int,
     post_update: PostCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_non_guest_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -339,13 +340,13 @@ async def update_post(
     response_model=DeletePostResponse,
     responses={
         401: {"model": ErrorDetail, "description": "Not authenticated"},
-        403: {"model": ErrorDetail, "description": "Not enough permissions"},
+        403: {"model": ErrorDetail, "description": "Not enough permissions or guest user"},
         404: {"model": ErrorDetail, "description": "Post not found"}
     }
 )
 async def delete_post(
     post_id: int,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_non_guest_superuser),
     db: Session = Depends(get_db)
 ):
     """Delete post by ID (superuser only)"""

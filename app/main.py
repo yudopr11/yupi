@@ -29,8 +29,8 @@ app.router.lifespan_context = lifespan
 # Include routers
 app.include_router(auth.router)
 app.include_router(blog.router)
-app.include_router(splitbill.router)
 app.include_router(transaction.router)
+app.include_router(splitbill.router)
 
 @app.get("/")
 async def root():

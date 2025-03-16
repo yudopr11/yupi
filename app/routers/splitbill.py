@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from openai import OpenAI
 import json, base64
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 from app.utils.auth import get_current_user
 from app.models.user import User
@@ -9,6 +11,35 @@ from app.schemas.error import ErrorDetail
 from app.core.config import settings
 
 router = APIRouter(prefix="/splitbill", tags=["Bill Analysis"])
+
+# In-memory rate limiting storage
+# Structure: {ip_address: {date: count}}
+request_counts = defaultdict(lambda: defaultdict(int))
+last_cleanup = datetime.now()
+
+# Rate limiting constants
+GUEST_RATE_LIMIT = 3  # Max requests per day for guest users
+CLEANUP_INTERVAL = timedelta(hours=1)  # Clean old records every hour
+
+def cleanup_old_records():
+    """Remove records older than 1 day to prevent memory leaks"""
+    global last_cleanup
+    now = datetime.now()
+    
+    # Only run cleanup every CLEANUP_INTERVAL
+    if now - last_cleanup < CLEANUP_INTERVAL:
+        return
+        
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    for ip in list(request_counts.keys()):
+        for date in list(request_counts[ip].keys()):
+            if date < yesterday:
+                del request_counts[ip][date]
+        # Remove IP entries with no dates
+        if not request_counts[ip]:
+            del request_counts[ip]
+            
+    last_cleanup = now
 
 # Define allowed image MIME types
 ALLOWED_IMAGE_TYPES = [
@@ -44,25 +75,14 @@ def validate_image(file: UploadFile) -> None:
             detail="Could not validate file size"
         )
 
-@router.post(
-    "/analyze",
-    response_model=BillAnalysisResponse,
-    responses={
-        400: {"model": ErrorDetail, "description": "Invalid bill image"},
-        401: {"model": ErrorDetail, "description": "Not authenticated"},
-        413: {"model": ErrorDetail, "description": "File too large"},
-        415: {"model": ErrorDetail, "description": "Unsupported file type"},
-        422: {"model": ErrorDetail, "description": "Validation error"},
-        500: {"model": ErrorDetail, "description": "Internal server error"}
-    }
-)
-async def analyze_bill(
-    image: UploadFile = File(...),
-    description: str = Form(...),
-    image_description: str = Form(None),
-    current_user: User = Depends(get_current_user)
+async def _analyze_bill(
+    image: UploadFile,
+    description: str,
+    image_description: str = None,
+    model: str = "o3-mini",
+    temperature: float = 1
 ):
-    """Analyze bill image and split costs based on description (authenticated users only)"""
+    """Internal helper function to analyze bill images"""
     try:
         # Initialize OpenAI client with API key from settings
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -96,7 +116,7 @@ async def analyze_bill(
 Task:
 1. First, determine if the image is a bill/receipt
 2. If NOT a bill/receipt, output exactly "0"
-3. If it IS a bill/receipt, provide a detailed description
+3. If it IS a bill/receipt, provide a detailed description\
 Do not add any explanatory text or labels - just output the raw information."""
                         },
                         {"type": "image_url", "image_url": {"url": image_data_url}}
@@ -138,10 +158,16 @@ Task: Create a detailed breakdown of individual payments including items, shared
     * List each item with its UNIT price (not the total price)
 - Ensure prices match exactly as shown in the bill after quantity calculation
 - Do not include crossed-out prices (these are marketing displays, not actual prices)
+- Be aware that price formats vary by currency (e.g., "1,234.56", "1.234,56", "1 234,56")
 
 2. Currency Detection:
 - Identify and use the exact currency shown in the bill
 - Format all monetary values consistently using the detected currency
+- Recognize different price formatting conventions:
+  * Some currencies use "." as decimal separator and "," as thousands separator (e.g., USD: $1,234.56)
+  * Others use "," as decimal separator and "." as thousands separator (e.g., EUR: €1.234,56)
+  * Some use spaces as thousands separators (e.g., 1 234,56)
+- Correctly parse prices according to the detected currency's format
 
 3. Tax (VAT) Calculation:
 - Use the VAT rate shown in the bill or from order details description
@@ -208,8 +234,8 @@ Ensure the response is valid JSON with no additional text or explanations.
 '''
         
         response = client.chat.completions.create(
-            model="o3-mini",
-            temperature=1,
+            model=model,
+            temperature=temperature,
             messages=[
                 {
                 "role": "user",
@@ -258,3 +284,48 @@ Ensure the response is valid JSON with no additional text or explanations.
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while analyzing the bill: {str(e)}"
         ) 
+
+@router.post(
+    "/analyze",
+    response_model=BillAnalysisResponse,
+    responses={
+        400: {"model": ErrorDetail, "description": "Invalid bill image"},
+        401: {"model": ErrorDetail, "description": "Not authenticated"},
+        413: {"model": ErrorDetail, "description": "File too large"},
+        415: {"model": ErrorDetail, "description": "Unsupported file type"},
+        422: {"model": ErrorDetail, "description": "Validation error"},
+        429: {"model": ErrorDetail, "description": "Rate limit exceeded"},
+        500: {"model": ErrorDetail, "description": "Internal server error"}
+    }
+)
+async def analyze_bill(
+    request: Request,
+    image: UploadFile = File(...),
+    description: str = Form(...),
+    image_description: str = Form(None),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze bill image and split costs based on description (authenticated users only)"""
+    
+    # Check rate limit for guest users
+    if current_user.username == "guest":
+        # Clean up old records to prevent memory leaks
+        cleanup_old_records()
+        client_ip = request.client.host
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today not in request_counts[client_ip]:
+            request_counts[client_ip][today] = 0
+        if request_counts[client_ip][today] >= GUEST_RATE_LIMIT:
+            # Rate limit exceeded
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded. Guest users are limited to {GUEST_RATE_LIMIT} bill analyses per day."
+            )
+        else:
+            # Increment counter
+            request_counts[client_ip][today] += 1
+    
+    # Use gpt-4o-mini model if username is guest
+    model = "gpt-4o-mini" if current_user.username == "guest" else "o3-mini"
+    temperature = 0 if current_user.username == "guest" else 1
+    return await _analyze_bill(image, description, image_description, model=model, temperature=temperature)

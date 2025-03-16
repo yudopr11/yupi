@@ -112,4 +112,24 @@ async def get_current_superuser(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only superuser can perform this action"
         )
+    return current_user
+
+async def get_non_guest_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    if current_user.username == "guest":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Guest users cannot access this endpoint"
+        )
+    return current_user
+
+async def get_non_guest_superuser(
+    current_user: User = Depends(get_current_superuser)
+) -> User:
+    if current_user.username == "guest":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Guest users cannot access this endpoint"
+        )
     return current_user 
