@@ -1,11 +1,12 @@
-from sqlalchemy import Column, String, Integer, Text, Float, Enum, ForeignKey, TypeDecorator, DECIMAL
+from sqlalchemy import Column, String, Integer, Text, ForeignKey, TypeDecorator, DECIMAL
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from sqlalchemy.sql.expression import text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.utils.database import Base
-import enum
+import enum, uuid
 
-class AccountType(str, enum.Enum):
+class TrxAccountType(str, enum.Enum):
     BANK_ACCOUNT = "bank_account"
     CREDIT_CARD = "credit_card"
     OTHER = "other"
@@ -31,16 +32,16 @@ class EnumAsString(TypeDecorator):
             return None
         return self._enumtype(value)
 
-class Account(Base):
-    __tablename__ = "accounts"
+class TrxAccount(Base):
+    __tablename__ = "trx_accounts"
     
     account_id = Column(Integer, primary_key=True, nullable=False)
-    uuid = Column(String, nullable=False, unique=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     name = Column(String, nullable=False)
-    type = Column(EnumAsString(AccountType), nullable=False)
+    type = Column(EnumAsString(TrxAccountType), nullable=False)
     description = Column(Text)
     limit = Column(DECIMAL(10, 2))
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'), onupdate=text('now()'))
     

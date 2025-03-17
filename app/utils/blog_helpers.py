@@ -1,5 +1,5 @@
 from openai import OpenAI
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 import json
 import re
 from sqlalchemy.orm import Session
@@ -375,7 +375,7 @@ def search_posts_by_embedding(
     published_filter = "AND posts.published = TRUE" if published_only else ""
     sql = text(f"""
     SELECT 
-        posts.id, 
+        posts.post_id, 
         posts.title,
         posts.slug,
         posts.excerpt,
@@ -383,14 +383,14 @@ def search_posts_by_embedding(
         posts.reading_time,
         posts.published,
         posts.created_at,
-        users.id as author_id,
+        users.user_id as author_id,
         users.username as author_username,
         users.email as author_email,
         cosine_similarity(posts.embedding, :query_embedding) as similarity
     FROM 
         posts
     JOIN
-        users ON posts.author_id = users.id
+        users ON posts.author_id = users.user_id
     WHERE 
         posts.embedding IS NOT NULL
         {published_filter}
@@ -410,7 +410,7 @@ def search_posts_by_embedding(
     for row in result:
         if row.similarity >= similarity_threshold:
             post_dict = {
-                "id": row.id,
+                "post_id": row.post_id,
                 "title": row.title,
                 "slug": row.slug,
                 "excerpt": row.excerpt,
@@ -419,7 +419,7 @@ def search_posts_by_embedding(
                 "published": row.published,
                 "created_at": row.created_at,
                 "author": {
-                    "id": row.author_id,
+                    "user_id": row.author_id,
                     "username": row.author_username,
                     "email": row.author_email
                 },

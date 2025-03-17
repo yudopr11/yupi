@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery
-from sqlalchemy.orm import Session, Query
-from sqlalchemy import func, case, or_, desc
-from typing import List, Optional, Union
+from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, desc
+from typing import List, Optional
 import uuid
-from datetime import datetime, timedelta, UTC
-import calendar
+from datetime import datetime, UTC
 from decimal import Decimal
 
 from app.utils.database import get_db
@@ -27,12 +26,12 @@ from app.utils.transaction_helpers import (
     calculate_date_range
 )
 from app.models.transaction import Transaction, TransactionType
-from app.models.account import Account as AccountModel, AccountType
-from app.models.category import Category as CategoryModel, CategoryType
+from app.models.account import TrxAccount as AccountModel, TrxAccountType
+from app.models.category import TrxCategory as CategoryModel, TrxCategoryType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionResponse, AccountBalanceResponse, DeleteTransactionResponse, TransactionList
-from app.schemas.account import AccountCreate, AccountResponse, AccountWithBalance, DeleteAccountResponse
-from app.schemas.category import CategoryCreate, CategoryResponse, Category, DeleteCategoryResponse
+from app.schemas.account import TrxAccountCreate, TrxAccountResponse, TrxAccountWithBalance, TrxDeleteAccountResponse
+from app.schemas.category import TrxCategoryCreate, TrxCategoryResponse, TrxCategory, TrxDeleteCategoryResponse
 from app.schemas.statistics import (
     FinancialSummaryResponse, 
     CategoryDistributionResponse, 
@@ -46,30 +45,30 @@ router = APIRouter(
 )
 
 # Account endpoints
-@router.post("/accounts", response_model=AccountResponse)
-def create_account(account: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+@router.post("/accounts", response_model=TrxAccountResponse)
+def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Create and validate account object
-    new_account = prepare_account_for_db(account.model_dump(), current_user.id)
+    new_account = prepare_account_for_db(account.model_dump(), current_user.user_id)
     
     db.add(new_account)
     db.commit()
     db.refresh(new_account)
     
     # For credit cards, create an initial balance transaction equal to the limit
-    if new_account.type == AccountType.CREDIT_CARD and new_account.limit is not None:
+    if new_account.type == TrxAccountType.CREDIT_CARD and new_account.limit is not None:
         # Find or create "Other" category for income
         other_category = db.query(CategoryModel).filter(
             CategoryModel.name == "Other",
-            CategoryModel.type == CategoryType.INCOME,
-            CategoryModel.user_id == current_user.id
+            CategoryModel.type == TrxCategoryType.INCOME,
+            CategoryModel.user_id == current_user.user_id
         ).first()
         
         if not other_category:
             # Create "Other" category if it doesn't exist
             other_category = CategoryModel(
                 name="Other",
-                type=CategoryType.INCOME,
-                user_id=current_user.id,
+                type=TrxCategoryType.INCOME,
+                user_id=current_user.user_id,
                 uuid=str(uuid.uuid4())
             )
             db.add(other_category)
@@ -83,7 +82,7 @@ def create_account(account: AccountCreate, db: Session = Depends(get_db), curren
             transaction_type=TransactionType.INCOME,  # Use income to add positive balance
             account_id=new_account.account_id,
             category_id=other_category.category_id,  # Set category to "Other"
-            user_id=current_user.id,
+            user_id=current_user.user_id,
             uuid=uuid.uuid4()
         )
         
@@ -92,36 +91,36 @@ def create_account(account: AccountCreate, db: Session = Depends(get_db), curren
     
     return {"data": new_account, "message": "Account created successfully"}
 
-@router.put("/accounts/{account_id}", response_model=AccountResponse)
-def update_account(account_id: int, account: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+@router.put("/accounts/{account_id}", response_model=TrxAccountResponse)
+def update_account(account_id: int, account: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate that account exists and belongs to user
-    existing_account = validate_account(db, account_id, current_user.id)
+    existing_account = validate_account(db, account_id, current_user.user_id)
     
     # Validate credit card accounts have a limit
-    if account.type == AccountType.CREDIT_CARD and account.limit is None:
+    if account.type == TrxAccountType.CREDIT_CARD and account.limit is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Credit card accounts must have a limit"
         )
     
     # Update account
-    account_query = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.id)
+    account_query = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.user_id)
     account_query.update(account.model_dump(), synchronize_session=False)
     db.commit()
     db.refresh(existing_account)
     
     return {"data": existing_account, "message": "Account updated successfully"}
 
-@router.delete("/accounts/{account_id}", response_model=DeleteAccountResponse)
+@router.delete("/accounts/{account_id}", response_model=TrxDeleteAccountResponse)
 def delete_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate account
-    account = validate_account(db, account_id, current_user.id)
+    account = validate_account(db, account_id, current_user.user_id)
     
     # Prepare deletion info
     deleted_account_info = prepare_deleted_account_info(account)
     
     # Delete account
-    account_query = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.id)
+    account_query = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.user_id)
     account_query.delete(synchronize_session=False)
     db.commit()
     
@@ -132,7 +131,7 @@ def delete_account(account_id: int, db: Session = Depends(get_db), current_user:
 
 @router.get("/accounts/{account_id}/balance", response_model=AccountBalanceResponse)
 def get_account_balance(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    account = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.id).first()
+    account = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.user_id).first()
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -140,7 +139,7 @@ def get_account_balance(account_id: int, db: Session = Depends(get_db), current_
         )
     
     # Calculate balance details using the helper function
-    balance_details = calculate_account_balance(db, account_id, current_user.id)
+    balance_details = calculate_account_balance(db, account_id, current_user.user_id)
     
     response_data = {
         "account_id": account_id,
@@ -154,7 +153,7 @@ def get_account_balance(account_id: int, db: Session = Depends(get_db), current_
     }
     
     # Add payable_balance for credit cards
-    if account.type == AccountType.CREDIT_CARD and account.limit is not None:
+    if account.type == TrxAccountType.CREDIT_CARD and account.limit is not None:
         response_data["payable_balance"] = balance_details.get("payable_balance")
     
     return {
@@ -162,7 +161,7 @@ def get_account_balance(account_id: int, db: Session = Depends(get_db), current_
         "message": "Balance retrieved successfully"
     }
 
-@router.get("/accounts", response_model=List[AccountWithBalance])
+@router.get("/accounts", response_model=List[TrxAccountWithBalance])
 def get_accounts(
     account_type: Optional[str] = None,
     db: Session = Depends(get_db), 
@@ -181,13 +180,13 @@ def get_accounts(
         List of accounts with calculated balances
     """
     # Get accounts based on filters
-    accounts = get_filtered_accounts(db, current_user.id, account_type)
+    accounts = get_filtered_accounts(db, current_user.user_id, account_type)
     
     # Calculate balances for each account and create result objects
     result = []
     for account in accounts:
         balance_details = calculate_account_balance(db, account.account_id)
-        account_with_balance = AccountWithBalance.model_validate(account)
+        account_with_balance = TrxAccountWithBalance.model_validate(account)
         account_with_balance.balance = balance_details["balance"]
         account_with_balance.total_income = balance_details["total_income"]
         account_with_balance.total_expenses = balance_details["total_expenses"]
@@ -196,7 +195,7 @@ def get_accounts(
         account_with_balance.total_transfer_fees = balance_details["total_transfer_fees"]
         
         # Add payable_balance for credit cards
-        if account.type == AccountType.CREDIT_CARD and account.limit is not None:
+        if account.type == TrxAccountType.CREDIT_CARD and account.limit is not None:
             account_with_balance.payable_balance = balance_details.get("payable_balance")
         
         result.append(account_with_balance)
@@ -204,10 +203,10 @@ def get_accounts(
     return result
 
 # Category endpoints
-@router.post("/categories", response_model=CategoryResponse)
-def create_category(category: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+@router.post("/categories", response_model=TrxCategoryResponse)
+def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Create and validate category object
-    new_category = prepare_category_for_db(category.model_dump(), current_user.id)
+    new_category = prepare_category_for_db(category.model_dump(), current_user.user_id)
     
     db.add(new_category)
     db.commit()
@@ -215,29 +214,29 @@ def create_category(category: CategoryCreate, db: Session = Depends(get_db), cur
     
     return {"data": new_category, "message": "Category created successfully"}
 
-@router.put("/categories/{category_id}", response_model=CategoryResponse)
-def update_category(category_id: int, category: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+@router.put("/categories/{category_id}", response_model=TrxCategoryResponse)
+def update_category(category_id: int, category: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate category
-    existing_category = validate_category(db, category_id, current_user.id)
+    existing_category = validate_category(db, category_id, current_user.user_id)
     
     # Update category
-    category_query = db.query(CategoryModel).filter(CategoryModel.category_id == category_id, CategoryModel.user_id == current_user.id)
+    category_query = db.query(CategoryModel).filter(CategoryModel.category_id == category_id, CategoryModel.user_id == current_user.user_id)
     category_query.update(category.model_dump(), synchronize_session=False)
     db.commit()
     db.refresh(existing_category)
     
     return {"data": existing_category, "message": "Category updated successfully"}
 
-@router.delete("/categories/{category_id}", response_model=DeleteCategoryResponse)
+@router.delete("/categories/{category_id}", response_model=TrxDeleteCategoryResponse)
 def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate category
-    category = validate_category(db, category_id, current_user.id)
+    category = validate_category(db, category_id, current_user.user_id)
     
     # Prepare deletion info
     deleted_category_info = prepare_deleted_category_info(category)
     
     # Delete category
-    category_query = db.query(CategoryModel).filter(CategoryModel.category_id == category_id, CategoryModel.user_id == current_user.id)
+    category_query = db.query(CategoryModel).filter(CategoryModel.category_id == category_id, CategoryModel.user_id == current_user.user_id)
     category_query.delete(synchronize_session=False)
     db.commit()
     
@@ -246,7 +245,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db), current_use
         "deleted_item": deleted_category_info
     }
 
-@router.get("/categories", response_model=List[Category])
+@router.get("/categories", response_model=List[TrxCategory])
 def get_categories(
     category_type: Optional[str] = None,
     db: Session = Depends(get_db), 
@@ -263,17 +262,17 @@ def get_categories(
     Returns:
         List of categories
     """
-    categories = get_filtered_categories(db, current_user.id, category_type)
+    categories = get_filtered_categories(db, current_user.user_id, category_type)
     return categories
 
 # Transaction endpoints
 @router.post("/transactions", response_model=TransactionResponse)
 def create_transaction(transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
     # Validate account exists and belongs to user
-    account = validate_account(db, transaction.account_id, current_user.id)
+    account = validate_account(db, transaction.account_id, current_user.user_id)
     
     # Validate category if provided
-    category = validate_category(db, transaction.category_id, current_user.id)
+    category = validate_category(db, transaction.category_id, current_user.user_id)
     
     # Validate category type matches transaction type
     validate_transaction_category_match(transaction.transaction_type, category)
@@ -281,7 +280,7 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
     # Credit card validation for expenses
     if (
         transaction.transaction_type == TransactionType.EXPENSE and 
-        account.type == AccountType.CREDIT_CARD
+        account.type == TrxAccountType.CREDIT_CARD
     ):
         # Calculate current balance
         balance_details = calculate_account_balance(db, account.account_id)
@@ -298,11 +297,11 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
         transaction.account_id,
         transaction.transfer_fee,
         db,
-        current_user.id
+        current_user.user_id
     )
     
     # Create transaction
-    new_transaction = prepare_transaction_for_db(transaction.model_dump(), current_user.id)
+    new_transaction = prepare_transaction_for_db(transaction.model_dump(), current_user.user_id)
     
     db.add(new_transaction)
     db.commit()
@@ -315,7 +314,7 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
     # Check if transaction exists and belongs to user
     transaction_query = db.query(Transaction).filter(
         Transaction.transaction_id == transaction_id,
-        Transaction.user_id == current_user.id
+        Transaction.user_id == current_user.user_id
     )
     existing_transaction = transaction_query.first()
     
@@ -326,10 +325,10 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
         )
     
     # Validate account exists and belongs to user
-    account = validate_account(db, transaction.account_id, current_user.id)
+    account = validate_account(db, transaction.account_id, current_user.user_id)
     
     # Validate category if provided
-    category = validate_category(db, transaction.category_id, current_user.id)
+    category = validate_category(db, transaction.category_id, current_user.user_id)
     
     # Validate category type matches transaction type
     validate_transaction_category_match(transaction.transaction_type, category)
@@ -337,7 +336,7 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
     # Credit card validation for expenses - only check if this is a new expense or amount increased
     if (
         transaction.transaction_type == TransactionType.EXPENSE and 
-        account.type == AccountType.CREDIT_CARD and
+        account.type == TrxAccountType.CREDIT_CARD and
         (existing_transaction.transaction_type != TransactionType.EXPENSE or
          transaction.amount > existing_transaction.amount)
     ):
@@ -365,7 +364,7 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
         transaction.account_id,
         transaction.transfer_fee,
         db,
-        current_user.id
+        current_user.user_id
     )
     
     transaction_query.update(transaction.model_dump(), synchronize_session=False)
@@ -379,7 +378,7 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
     # Find transaction
     transaction_query = db.query(Transaction).filter(
         Transaction.transaction_id == transaction_id,
-        Transaction.user_id == current_user.id
+        Transaction.user_id == current_user.user_id
     )
     transaction = transaction_query.first()
     
@@ -440,7 +439,7 @@ def get_transactions(
         # Get the base query with all filters applied but without pagination
         query = get_filtered_transactions(
             db=db,
-            user_id=current_user.id,
+            user_id=current_user.user_id,
             account_name=account_name,
             category_name=category_name,
             transaction_type=transaction_type,
@@ -517,7 +516,7 @@ def get_financial_summary(
         Transaction.transaction_type,
         func.sum(Transaction.amount).label("total")
     ).filter(
-        Transaction.user_id == current_user.id,
+        Transaction.user_id == current_user.user_id,
         Transaction.transaction_date.between(start_date, end_date)
     ).group_by(Transaction.transaction_type)
     
@@ -593,8 +592,8 @@ def get_category_distribution(
         Transaction, 
         Transaction.category_id == CategoryModel.category_id
     ).filter(
-        Transaction.user_id == current_user.id,
-        CategoryModel.user_id == current_user.id,
+        Transaction.user_id == current_user.user_id,
+        CategoryModel.user_id == current_user.user_id,
         Transaction.transaction_date.between(start_date, end_date),
         Transaction.transaction_type == tx_type
     ).group_by(
@@ -609,7 +608,7 @@ def get_category_distribution(
     total_query = db.query(
         func.sum(Transaction.amount).label("total")
     ).filter(
-        Transaction.user_id == current_user.id,
+        Transaction.user_id == current_user.user_id,
         Transaction.transaction_date.between(start_date, end_date),
         Transaction.transaction_type == tx_type
     )
@@ -700,7 +699,7 @@ def get_transaction_trends(
         Transaction.transaction_type,
         func.sum(Transaction.amount).label("total")
     ).filter(
-        Transaction.user_id == current_user.id,
+        Transaction.user_id == current_user.user_id,
         Transaction.transaction_date.between(start_date, end_date),
         Transaction.transaction_type.in_(transaction_types)
     ).group_by(
@@ -759,7 +758,7 @@ def get_account_summary(
         Accounts are sorted by the time of the latest transaction using that account.
     """
     # Get all accounts for the user
-    accounts = db.query(AccountModel).filter(AccountModel.user_id == current_user.id).all()
+    accounts = db.query(AccountModel).filter(AccountModel.user_id == current_user.user_id).all()
     
     # For each account, calculate the balance and get latest transaction date
     account_summaries = []
@@ -775,7 +774,7 @@ def get_account_summary(
     accounts_with_latest_tx = []
     
     for account in accounts:
-        balance_info = calculate_account_balance(db, account.account_id, current_user.id)
+        balance_info = calculate_account_balance(db, account.account_id, current_user.user_id)
         balance = balance_info["balance"]
         
         # Find the latest transaction date for this account (as source or destination)
@@ -786,7 +785,7 @@ def get_account_summary(
                 Transaction.account_id == account.account_id,
                 Transaction.destination_account_id == account.account_id
             ),
-            Transaction.user_id == current_user.id
+            Transaction.user_id == current_user.user_id
         ).scalar()
         
         # Default to account creation date if no transactions

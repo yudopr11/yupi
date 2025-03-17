@@ -3,8 +3,8 @@ from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
 from app.models.transaction import TransactionType
-from app.schemas.account import Account
-from app.schemas.category import Category
+from app.schemas.account import TrxAccount
+from app.schemas.category import TrxCategory
 from app.schemas.common import DeletedItemInfo, DeleteResponse
 
 class TransactionBase(BaseModel):
@@ -24,9 +24,9 @@ class Transaction(TransactionBase):
     transaction_id: int
     uuid: UUID4
     user_id: int
-    account: Account
-    category: Optional[Category] = None
-    destination_account: Optional[Account] = None
+    account: TrxAccount
+    category: Optional[TrxCategory] = None
+    destination_account: Optional[TrxAccount] = None
     created_at: datetime
     updated_at: datetime
 
@@ -71,7 +71,7 @@ class AccountBalance(BaseModel):
     total_transfers_in: Decimal
     total_transfers_out: Decimal
     total_transfer_fees: Decimal
-    account: Account
+    account: TrxAccount
 
 class AccountBalanceResponse(BaseModel):
     data: AccountBalance

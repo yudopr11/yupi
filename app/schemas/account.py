@@ -2,19 +2,19 @@ from pydantic import BaseModel, Field, UUID4
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
-from app.models.account import AccountType
+from app.models.account import TrxAccountType
 from app.schemas.common import DeletedItemInfo, DeleteResponse
 
-class AccountBase(BaseModel):
+class TrxAccountBase(BaseModel):
     name: str
-    type: AccountType
+    type: TrxAccountType
     description: Optional[str] = None
     limit: Optional[Decimal] = None
 
-class AccountCreate(AccountBase):
+class TrxAccountCreate(TrxAccountBase):
     pass
 
-class Account(AccountBase):
+class TrxAccount(TrxAccountBase):
     account_id: int
     uuid: UUID4
     user_id: int
@@ -24,7 +24,7 @@ class Account(AccountBase):
     class Config:
         from_attributes = True
 
-class AccountWithBalance(Account):
+class TrxAccountWithBalance(TrxAccount):
     balance: Decimal = Decimal('0.0')
     payable_balance: Optional[Decimal] = None
     total_income: Optional[Decimal] = None
@@ -33,18 +33,18 @@ class AccountWithBalance(Account):
     total_transfers_out: Optional[Decimal] = None
     total_transfer_fees: Optional[Decimal] = None
 
-class AccountResponse(BaseModel):
-    data: Account
+class TrxAccountResponse(BaseModel):
+    data: TrxAccount
     message: str = "Success"
 
-class DeletedAccountInfo(DeletedItemInfo):
+class TrxDeletedAccountInfo(DeletedItemInfo):
     """
     Schema for deleted account information
     """
     name: str = Field(..., description="Name of the deleted account")
     type: str = Field(..., description="Type of the deleted account")
 
-class DeleteAccountResponse(DeleteResponse[DeletedAccountInfo]):
+class TrxDeleteAccountResponse(DeleteResponse[TrxDeletedAccountInfo]):
     """
     Schema for delete account response
     

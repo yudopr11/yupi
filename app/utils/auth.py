@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, UTC
-from typing import Optional, Tuple
+from typing import Tuple
 from jose import JWTError, jwt
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.utils.database import get_db
 from app.models.user import User
-from app.schemas.user import TokenData, TokenPayload
+from app.schemas.user import TokenPayload
 
 # JWT configuration
 SECRET_KEY = settings.SECRET_KEY

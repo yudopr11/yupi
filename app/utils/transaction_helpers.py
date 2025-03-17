@@ -1,21 +1,17 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, Query
-from typing import Dict, Any, Tuple, Union, Optional, List
+from typing import Dict, Any, Tuple, Union, Optional
 import uuid
 from datetime import datetime, timedelta
 import calendar
-from sqlalchemy import Column, String, Integer, Text, Float, ForeignKey, Enum, DECIMAL
-from sqlalchemy.sql import func
-from sqlalchemy import or_, and_, desc
-from sqlalchemy.exc import SQLAlchemyError
 from decimal import Decimal
 
-from app.models.account import Account, AccountType
-from app.models.category import Category, CategoryType
+from app.models.account import TrxAccount, TrxAccountType
+from app.models.category import TrxCategory, TrxCategoryType
 from app.models.transaction import Transaction, TransactionType
 from app.models.user import User
 
-def validate_account(db: Session, account_id: int, user_id: int) -> Account:
+def validate_account(db: Session, account_id: int, user_id: int) -> TrxAccount:
     """
     Validates that an account exists and belongs to the user
     
@@ -30,20 +26,20 @@ def validate_account(db: Session, account_id: int, user_id: int) -> Account:
     Raises:
         HTTPException: If account doesn't exist or doesn't belong to user
     """
-    account = db.query(Account).filter(
-        Account.account_id == account_id,
-        Account.user_id == user_id
+    account = db.query(TrxAccount).filter(
+        TrxAccount.account_id == account_id,
+        TrxAccount.user_id == user_id
     ).first()
     
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Account with id {account_id} not found"
+            detail=f"TrxAccount with id {account_id} not found"
         )
     
     return account
 
-def validate_category(db: Session, category_id: Optional[int], user_id: int) -> Optional[Category]:
+def validate_category(db: Session, category_id: Optional[int], user_id: int) -> Optional[TrxCategory]:
     """
     Validates that a category exists and belongs to the user
     
@@ -61,26 +57,26 @@ def validate_category(db: Session, category_id: Optional[int], user_id: int) -> 
     if category_id is None:
         return None
         
-    category = db.query(Category).filter(
-        Category.category_id == category_id,
-        Category.user_id == user_id
+    category = db.query(TrxCategory).filter(
+        TrxCategory.category_id == category_id,
+        TrxCategory.user_id == user_id
     ).first()
     
     if not category:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Category with id {category_id} not found"
+            detail=f"TrxCategory with id {category_id} not found"
         )
     
     return category
 
-def validate_transaction_category_match(transaction_type: TransactionType, category: Optional[Category]) -> None:
+def validate_transaction_category_match(transaction_type: TransactionType, category: Optional[TrxCategory]) -> None:
     """
     Validates that the transaction type matches the category type
     
     Args:
         transaction_type: Type of the transaction
-        category: Category object to validate against (can be None)
+        category: TrxCategory object to validate against (can be None)
         
     Raises:
         HTTPException: If transaction type doesn't match category type
@@ -89,12 +85,12 @@ def validate_transaction_category_match(transaction_type: TransactionType, categ
         return
         
     if transaction_type in [TransactionType.INCOME, TransactionType.EXPENSE]:
-        if transaction_type == TransactionType.INCOME and category.type != CategoryType.INCOME:
+        if transaction_type == TransactionType.INCOME and category.type != TrxCategoryType.INCOME:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Income transactions must use an income category"
             )
-        elif transaction_type == TransactionType.EXPENSE and category.type != CategoryType.EXPENSE:
+        elif transaction_type == TransactionType.EXPENSE and category.type != TrxCategoryType.EXPENSE:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Expense transactions must use an expense category"
@@ -107,7 +103,7 @@ def validate_transfer(
     transfer_fee: float,
     db: Session, 
     user_id: int
-) -> Optional[Account]:
+) -> Optional[TrxAccount]:
     """
     Validates transfer transaction details
     
@@ -155,9 +151,9 @@ def validate_transfer(
             detail="Source and destination accounts cannot be the same for transfers"
         )
     
-    dest_account = db.query(Account).filter(
-        Account.account_id == destination_account_id,
-        Account.user_id == user_id
+    dest_account = db.query(TrxAccount).filter(
+        TrxAccount.account_id == destination_account_id,
+        TrxAccount.user_id == user_id
     ).first()
     
     if not dest_account:
@@ -168,7 +164,7 @@ def validate_transfer(
     
     return dest_account
 
-def prepare_account_for_db(account_data: Dict[str, Any], user_id: int) -> Account:
+def prepare_account_for_db(account_data: Dict[str, Any], user_id: int) -> TrxAccount:
     """
     Prepares an account object for database insertion
     
@@ -177,21 +173,21 @@ def prepare_account_for_db(account_data: Dict[str, Any], user_id: int) -> Accoun
         user_id: ID of the user who owns the account
         
     Returns:
-        Account object ready for database insertion
+        TrxAccount object ready for database insertion
     """
-    if account_data.get("type") == AccountType.CREDIT_CARD and account_data.get("limit") is None:
+    if account_data.get("type") == TrxAccountType.CREDIT_CARD and account_data.get("limit") is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Credit card accounts must have a limit"
         )
     
-    new_account = Account(**account_data)
+    new_account = TrxAccount(**account_data)
     new_account.uuid = str(uuid.uuid4())
     new_account.user_id = user_id
     
     return new_account
 
-def prepare_category_for_db(category_data: Dict[str, Any], user_id: int) -> Category:
+def prepare_category_for_db(category_data: Dict[str, Any], user_id: int) -> TrxCategory:
     """
     Prepares a category object for database insertion
     
@@ -200,9 +196,9 @@ def prepare_category_for_db(category_data: Dict[str, Any], user_id: int) -> Cate
         user_id: ID of the user who owns the category
         
     Returns:
-        Category object ready for database insertion
+        TrxCategory object ready for database insertion
     """
-    new_category = Category(**category_data)
+    new_category = TrxCategory(**category_data)
     new_category.uuid = str(uuid.uuid4())
     new_category.user_id = user_id
     
@@ -225,12 +221,12 @@ def prepare_transaction_for_db(transaction_data: Dict[str, Any], user_id: int) -
     
     return new_transaction
 
-def prepare_deleted_account_info(account: Account) -> Dict[str, Any]:
+def prepare_deleted_account_info(account: TrxAccount) -> Dict[str, Any]:
     """
     Prepares account information for deletion response
     
     Args:
-        account: Account object being deleted
+        account: TrxAccount object being deleted
         
     Returns:
         Dictionary with formatted account info for deletion response
@@ -242,12 +238,12 @@ def prepare_deleted_account_info(account: Account) -> Dict[str, Any]:
         "type": account.type.value
     }
 
-def prepare_deleted_category_info(category: Category) -> Dict[str, Any]:
+def prepare_deleted_category_info(category: TrxCategory) -> Dict[str, Any]:
     """
     Prepares category information for deletion response
     
     Args:
-        category: Category object being deleted
+        category: TrxCategory object being deleted
         
     Returns:
         Dictionary with formatted category info for deletion response
@@ -281,7 +277,7 @@ def get_filtered_categories(
     db: Session,
     user_id: int, 
     category_type: Optional[str] = None
-) -> list[Category]:
+) -> list[TrxCategory]:
     """
     Get user categories with optional type filtering
     
@@ -297,7 +293,7 @@ def get_filtered_categories(
         HTTPException: If category_type is invalid
     """
     # Start with base query for user's categories
-    query = db.query(Category).filter(Category.user_id == user_id)
+    query = db.query(TrxCategory).filter(TrxCategory.user_id == user_id)
     
     # Apply category type filter if provided
     if category_type:
@@ -307,22 +303,22 @@ def get_filtered_categories(
         # Validate that it's a valid category type
         try:
             # Try to convert the string to enum
-            filter_type = CategoryType(category_type)
-            query = query.filter(Category.type == filter_type)
+            filter_type = TrxCategoryType(category_type)
+            query = query.filter(TrxCategory.type == filter_type)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid category type: {category_type}. Must be one of: {[t.value for t in CategoryType]}"
+                detail=f"Invalid category type: {category_type}. Must be one of: {[t.value for t in TrxCategoryType]}"
             )
     
     # Return results ordered by name
-    return query.order_by(Category.name).all()
+    return query.order_by(TrxCategory.name).all()
     
 def get_filtered_accounts(
     db: Session,
     user_id: int, 
     account_type: Optional[str] = None
-) -> list[Account]:
+) -> list[TrxAccount]:
     """
     Get user accounts with optional type filtering
     
@@ -338,7 +334,7 @@ def get_filtered_accounts(
         HTTPException: If account_type is invalid
     """
     # Start with base query for user's accounts
-    query = db.query(Account).filter(Account.user_id == user_id)
+    query = db.query(TrxAccount).filter(TrxAccount.user_id == user_id)
     
     # Apply account type filter if provided
     if account_type:
@@ -348,16 +344,16 @@ def get_filtered_accounts(
         # Validate that it's a valid account type
         try:
             # Try to convert the string to enum
-            filter_type = AccountType(account_type)
-            query = query.filter(Account.type == filter_type)
+            filter_type = TrxAccountType(account_type)
+            query = query.filter(TrxAccount.type == filter_type)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid account type: {account_type}. Must be one of: {[t.value for t in AccountType]}"
+                detail=f"Invalid account type: {account_type}. Must be one of: {[t.value for t in TrxAccountType]}"
             )
     
     # Return results ordered by name
-    return query.order_by(Account.name).all()
+    return query.order_by(TrxAccount.name).all()
 
 def calculate_account_balance(db: Session, account_id: int, user_id: int = None) -> dict:
     """
@@ -378,19 +374,19 @@ def calculate_account_balance(db: Session, account_id: int, user_id: int = None)
     # Get the account to check its type
     account = None
     if user_id:
-        account = db.query(Account).filter(
-            Account.account_id == account_id,
-            Account.user_id == user_id
+        account = db.query(TrxAccount).filter(
+            TrxAccount.account_id == account_id,
+            TrxAccount.user_id == user_id
         ).first()
     else:
-        account = db.query(Account).filter(
-            Account.account_id == account_id
+        account = db.query(TrxAccount).filter(
+            TrxAccount.account_id == account_id
         ).first()
     
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Account with id {account_id} not found"
+            detail=f"TrxAccount with id {account_id} not found"
         )
     
     # Calculate income
@@ -435,7 +431,7 @@ def calculate_account_balance(db: Session, account_id: int, user_id: int = None)
     }
     
     # Add payable_balance for credit cards
-    if account.type == AccountType.CREDIT_CARD and account.limit is not None:
+    if account.type == TrxAccountType.CREDIT_CARD and account.limit is not None:
         result["payable_balance"] = account.limit - balance
     
     return result
@@ -478,8 +474,8 @@ def get_filtered_transactions(
     """
     from sqlalchemy import or_
     from app.models.transaction import Transaction
-    from app.models.account import Account
-    from app.models.category import Category
+    from app.models.account import TrxAccount
+    from app.models.category import TrxCategory
     
     # Start with base query for user's transactions
     query = db.query(Transaction).filter(Transaction.user_id == user_id)
@@ -487,9 +483,9 @@ def get_filtered_transactions(
     # Apply account name filter if provided
     if account_name:
         # Find account(s) by name 
-        account_ids = db.query(Account.account_id).filter(
-            Account.user_id == user_id,
-            Account.name.ilike(f"%{account_name}%")
+        account_ids = db.query(TrxAccount.account_id).filter(
+            TrxAccount.user_id == user_id,
+            TrxAccount.name.ilike(f"%{account_name}%")
         ).all()
         
         if not account_ids:
@@ -510,9 +506,9 @@ def get_filtered_transactions(
     # Apply category name filter if provided
     if category_name:
         # Find category by name
-        category_ids = db.query(Category.category_id).filter(
-            Category.user_id == user_id,
-            Category.name.ilike(f"%{category_name}%")
+        category_ids = db.query(TrxCategory.category_id).filter(
+            TrxCategory.user_id == user_id,
+            TrxCategory.name.ilike(f"%{category_name}%")
         ).all()
         
         if not category_ids:

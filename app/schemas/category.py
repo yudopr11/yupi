@@ -1,17 +1,16 @@
 from pydantic import BaseModel, Field, UUID4
-from typing import Optional
 from datetime import datetime
-from app.models.category import CategoryType
+from app.models.category import TrxCategoryType
 from app.schemas.common import DeletedItemInfo, DeleteResponse
 
-class CategoryBase(BaseModel):
+class TrxCategoryBase(BaseModel):
     name: str
-    type: CategoryType
+    type: TrxCategoryType
 
-class CategoryCreate(CategoryBase):
+class TrxCategoryCreate(TrxCategoryBase):
     pass
 
-class Category(CategoryBase):
+class TrxCategory(TrxCategoryBase):
     category_id: int
     uuid: UUID4
     user_id: int
@@ -21,18 +20,18 @@ class Category(CategoryBase):
     class Config:
         from_attributes = True
 
-class CategoryResponse(BaseModel):
-    data: Category
+class TrxCategoryResponse(BaseModel):
+    data: TrxCategory
     message: str = "Success"
 
-class DeletedCategoryInfo(DeletedItemInfo):
+class TrxDeletedCategoryInfo(DeletedItemInfo):
     """
     Schema for deleted category information
     """
     name: str = Field(..., description="Name of the deleted category")
     type: str = Field(..., description="Type of the deleted category")
 
-class DeleteCategoryResponse(DeleteResponse[DeletedCategoryInfo]):
+class TrxDeleteCategoryResponse(DeleteResponse[TrxDeletedCategoryInfo]):
     """
     Schema for delete category response
     

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, UUID4
-from typing import List, Dict, Optional, Any
+from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
 
@@ -47,7 +47,7 @@ class CategoryDistributionItem(BaseModel):
     Schema for individual category in distribution
     """
     name: str = Field(..., description="Category name")
-    uuid: str = Field(..., description="Category UUID")
+    uuid: UUID4 = Field(..., description="Category UUID")
     total: Decimal = Field(..., description="Total amount for this category")
     percentage: Optional[Decimal] = Field(None, description="Percentage of total (0-100)")
 
@@ -147,7 +147,7 @@ class AccountSummaryItem(BaseModel):
     Schema for individual account in summary
     """
     account_id: int = Field(..., description="Account ID")
-    uuid: str = Field(..., description="Account UUID")
+    uuid: UUID4 = Field(..., description="Account UUID")
     name: str = Field(..., description="Account name")
     type: str = Field(..., description="Account type")
     balance: Decimal = Field(..., description="Current balance")

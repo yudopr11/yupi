@@ -3,7 +3,6 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import Annotated, List
-from pydantic import EmailStr
 
 from app.utils.database import get_db
 from app.utils.auth import (
@@ -274,14 +273,14 @@ async def delete_user(
     db: Session = Depends(get_db)
 ):
     """Delete user by ID (superuser only)"""
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         NOT_FOUND_ERROR("User").raise_exception()
     
-    if user.id == current_superuser.id:
+    if user.user_id == current_superuser.user_id:
         DELETE_SELF_ERROR.raise_exception()
     
-    user_info = DeletedUserInfo(id=user.id, username=user.username, uuid=str(user.uuid))
+    user_info = DeletedUserInfo(id=user.user_id, username=user.username, uuid=str(user.uuid))
     db.delete(user)
     db.commit()
 

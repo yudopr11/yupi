@@ -1,7 +1,6 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, UUID4
 from datetime import datetime
 from typing import Optional
-from uuid import UUID
 from .common import DeletedItemInfo, DeleteResponse
 
 class UserBase(BaseModel):
@@ -22,8 +21,8 @@ class UserResponse(UserBase):
     """
     Schema for user response with additional fields
     """
-    id: int = Field(..., description="User ID", example=1)
-    uuid: UUID = Field(..., description="Unique identifier", example="123e4567-e89b-12d3-a456-426614174000")
+    user_id: int = Field(..., description="User ID", example=1)
+    uuid: UUID4 = Field(..., description="Unique identifier", example="123e4567-e89b-12d3-a456-426614174000")
     is_superuser: bool = Field(..., description="Whether user has superuser privileges", example=False)
     created_at: datetime = Field(..., description="Account creation timestamp")
 

@@ -1,12 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, UUID4
 from typing import TypeVar, Generic
-from uuid import UUID
 
 T = TypeVar('T')
 
 class DeletedItemInfo(BaseModel):
     id: int
-    uuid: UUID | str
+    uuid: UUID4 | str
 
 class DeleteResponse(BaseModel, Generic[T]):
     message: str

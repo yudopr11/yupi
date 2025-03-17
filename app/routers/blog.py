@@ -227,7 +227,7 @@ async def create_post(
         **post_data,
         slug=generate_slug(post.title),
         reading_time=calculate_reading_time(post.content),
-        author_id=current_user.id
+        author_id=current_user.user_id
     )
     
     # Generate embedding for the post
@@ -267,11 +267,11 @@ async def update_post(
     - Recalculates reading time when content changes
     - Updates embedding vectors for semantic search
     """
-    post = db.query(Post).filter(Post.id == post_id).first()
+    post = db.query(Post).filter(Post.post_id == post_id).first()
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()
     
-    if post.author_id != current_user.id and not current_user.is_superuser:
+    if post.author_id != current_user.user_id and not current_user.is_superuser:
         AUTHOR_PERMISSION_ERROR.raise_exception()
     
     # Convert to dict for easier manipulation
@@ -350,11 +350,11 @@ async def delete_post(
     db: Session = Depends(get_db)
 ):
     """Delete post by ID (superuser only)"""
-    post = db.query(Post).filter(Post.id == post_id).first()
+    post = db.query(Post).filter(Post.post_id == post_id).first()
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()
     
-    post_info = DeletedPostInfo(id=post.id, title=post.title, uuid=post.uuid)
+    post_info = DeletedPostInfo(id=post.post_id, title=post.title, uuid=post.uuid)
     db.delete(post)
     db.commit()
 
