@@ -45,4 +45,4 @@ class TrxAccount(Base):
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'), onupdate=text('now()'))
     
-    user = relationship("User", back_populates="accounts") 
+    user = relationship("User", back_populates="trx_accounts") 
