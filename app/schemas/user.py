@@ -69,6 +69,28 @@ class ResetPasswordRequest(BaseModel):
     token: str = Field(..., description="Password reset token received in email")
     new_password: str = Field(..., description="New password", example="newStrongPassword123")
 
+class ForgotPasswordResponse(BaseModel):
+    """
+    Schema for forgot password response
+    
+    Example:
+        {
+            "message": "If the email exists in our system, a reset token will be sent."
+        }
+    """
+    message: str = Field(..., description="Response message", example="If the email exists in our system, a reset token will be sent.")
+
+class ResetPasswordResponse(BaseModel):
+    """
+    Schema for reset password response
+    
+    Example:
+        {
+            "message": "Password has been reset successfully"
+        }
+    """
+    message: str = Field(..., description="Response message", example="Password has been reset successfully")
+
 class DeletedUserInfo(DeletedItemInfo):
     """
     Schema for deleted user information

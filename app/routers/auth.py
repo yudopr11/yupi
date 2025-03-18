@@ -25,7 +25,9 @@ from app.schemas.user import (
     DeleteUserResponse, 
     DeletedUserInfo,
     ForgotPasswordRequest,
-    ResetPasswordRequest
+    ResetPasswordRequest,
+    ForgotPasswordResponse,
+    ResetPasswordResponse
 )
 from app.schemas.error import (
     ErrorDetail, 
@@ -182,6 +184,7 @@ async def logout(response: Response):
 
 @router.post(
     "/forgot-password",
+    response_model=ForgotPasswordResponse,
     responses={
         200: {"description": "Password reset email sent"},
         404: {"model": ErrorDetail, "description": "Email not found"},
@@ -219,6 +222,7 @@ async def forgot_password(
 
 @router.post(
     "/reset-password",
+    response_model=ResetPasswordResponse,
     responses={
         200: {"description": "Password reset successful"},
         401: {"model": ErrorDetail, "description": "Invalid or expired token"},
