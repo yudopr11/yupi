@@ -378,7 +378,7 @@ def get_filtered_accounts(
     
     This function retrieves accounts belonging to the specified user,
     with optional filtering by account type. It validates the account_type
-    parameter if provided and returns the results sorted by name.
+    parameter if provided and returns the results sorted by type and name.
     
     Args:
         db (Session): Database session
@@ -387,11 +387,13 @@ def get_filtered_accounts(
                                      ('bank_account', 'credit_card', 'other')
         
     Returns:
-        list[TrxAccount]: List of accounts matching the criteria
+        list[TrxAccount]: List of accounts matching the criteria, sorted by type and name
         
     Raises:
         HTTPException: If account_type is invalid
     """
+    from sqlalchemy import case
+    
     # Start with base query for user's accounts
     query = db.query(TrxAccount).filter(TrxAccount.user_id == user_id)
     
@@ -411,8 +413,16 @@ def get_filtered_accounts(
                 detail=f"Invalid account type: {account_type}. Must be one of: {[t.value for t in TrxAccountType]}"
             )
     
-    # Return results ordered by name
-    return query.order_by(TrxAccount.name).all()
+    # Order by type (bank_account, other, credit_card) and then by name
+    type_order = case(
+        (TrxAccount.type == TrxAccountType.BANK_ACCOUNT, 1),
+        (TrxAccount.type == TrxAccountType.OTHER, 2),
+        (TrxAccount.type == TrxAccountType.CREDIT_CARD, 3),
+        else_=4
+    )
+    query = query.order_by(type_order, TrxAccount.name)
+    
+    return query.all()
 
 def calculate_account_balance(db: Session, account_id: int, user_id: int = None) -> dict:
     """
