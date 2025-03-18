@@ -15,6 +15,12 @@ class User(Base):
     password = Column(String)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Add relationships to other models
+    posts = relationship("Post", back_populates="author")
+    accounts = relationship("TrxAccount", back_populates="user")
+    categories = relationship("TrxCategory", back_populates="user")
+    transactions = relationship("Transaction", back_populates="user")
 
     def __repr__(self):
-        return f"<User(id={self.id}, username={self.username}, email={self.email})>" 
+        return f"<User(id={self.user_id}, username={self.username}, email={self.email})>" 

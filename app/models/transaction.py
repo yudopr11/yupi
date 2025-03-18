@@ -31,7 +31,7 @@ class Transaction(Base):
     account = relationship("TrxAccount", foreign_keys=[account_id])
     category = relationship("TrxCategory")
     destination_account = relationship("TrxAccount", foreign_keys=[destination_account_id])
-    user = relationship("User")
+    user = relationship("User", back_populates="transactions")
     
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'), onupdate=text('now()')) 

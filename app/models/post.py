@@ -22,4 +22,5 @@ class Post(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     author_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
 
-    author = relationship("User") 
+    # Use string reference instead of class reference to avoid circular imports
+    author = relationship("User", back_populates="posts") 
