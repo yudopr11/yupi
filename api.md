@@ -55,7 +55,7 @@ Create a new user account (superuser only).
 **Success Response**: `200 OK`
 ```json
 {
-  "id": 0,
+  "user_id": 0,
   "uuid": "string",
   "username": "string",
   "email": "user@example.com",
@@ -205,7 +205,7 @@ Get a list of all users (superuser only).
 ```json
 [
   {
-    "id": 0,
+    "user_id": 0,
     "uuid": "string",
     "username": "string",
     "email": "user@example.com",
@@ -277,7 +277,7 @@ Create a new blog post.
 **Success Response**: `200 OK`
 ```json
 {
-  "id": 0,
+  "post_id": 0,
   "uuid": "string",
   "title": "string",
   "slug": "string",
@@ -316,7 +316,7 @@ Get a list of blog posts with pagination and filtering options.
 {
   "items": [
     {
-      "id": 0,
+      "post_id": 0,
       "uuid": "string",
       "title": "string",
       "slug": "string",
@@ -352,7 +352,7 @@ Get a specific blog post by its slug.
 **Success Response**: `200 OK`
 ```json
 {
-  "id": 0,
+  "post_id": 0,
   "uuid": "string",
   "title": "string",
   "slug": "string",
@@ -396,7 +396,7 @@ Update an existing blog post.
 **Success Response**: `200 OK`
 ```json
 {
-  "id": 0,
+  "post_id": 0,
   "uuid": "string",
   "title": "string",
   "slug": "string",
