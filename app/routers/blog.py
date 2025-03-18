@@ -20,7 +20,10 @@ from app.utils.blog_helpers import (
 )
 from sqlalchemy import or_, func
 
-router = APIRouter(prefix="/blog", tags=["Blog"])
+router = APIRouter(
+    prefix="/blog",
+    tags=["Blog"]
+    )
 
 @router.get(
     "", 
@@ -39,13 +42,29 @@ async def get_posts(
     db: Session = Depends(get_db)
 ):
     """
-    Get posts with various filters and pagination metadata
-    - Optional search in title, excerpt, content, and tags
-    - Optional filter by tag (case-insensitive)
-    - Filter by published status: 'published' (default), 'unpublished', or 'all'
-    - Default limit: 3 posts per page
-    - Returns total count and has_more flag for better pagination
-    - Semantic search using OpenAI embeddings when search is provided
+    Get paginated list of blog posts with advanced filtering and search capabilities
+    
+    This endpoint provides a flexible way to retrieve blog posts with various filters:
+    - Pagination support with skip/limit parameters
+    - Text search across title, excerpt, content, and tags
+    - Tag-based filtering
+    - Published status filtering
+    - Semantic search using OpenAI embeddings (when enabled)
+    
+    Args:
+        skip (int): Number of posts to skip (for pagination)
+        limit (int): Maximum number of posts to return
+        search (str, optional): Search term to filter posts
+        tag (str, optional): Tag to filter posts by
+        published_status (str, optional): Filter by publication status ("published", "unpublished", or "all")
+        use_rag (bool): Whether to use semantic search with OpenAI embeddings
+        
+    Returns:
+        PaginatedPostsResponse: List of posts with pagination metadata
+        
+    Note:
+        When use_rag=True and search is provided, the endpoint uses semantic search
+        with a similarity threshold of 0.5 to find relevant posts.
     """
     # If search is provided and RAG is enabled, use vector search
     if search and use_rag:
@@ -158,7 +177,21 @@ async def get_post(
     slug: str,
     db: Session = Depends(get_db)
 ):
-    """Get post by slug"""
+    """
+    Get a single blog post by its URL slug
+    
+    This endpoint retrieves a specific blog post using its URL-friendly slug.
+    The post must exist in the database.
+    
+    Args:
+        slug (str): URL-friendly identifier of the post
+        
+    Returns:
+        PostResponse: The requested blog post
+        
+    Raises:
+        HTTPException: If post with the given slug is not found
+    """
     post = db.query(Post).filter(Post.slug == slug).first()
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()
@@ -179,13 +212,24 @@ async def create_post(
     db: Session = Depends(get_db)
 ):
     """
-    Create new post (authenticated users only)
+    Create a new blog post (authenticated users only)
     
-    - Automatically generates post excerpt using AI if not provided
-    - Automatically suggests relevant tags using AI if none provided
-    - Calculates reading time
+    This endpoint creates a new blog post with AI-powered enhancements:
+    - Automatically generates an excerpt if not provided
+    - Suggests relevant tags based on content
+    - Calculates estimated reading time
     - Creates URL-friendly slug
-    - Generates and stores embedding vectors for semantic search
+    - Generates embedding vectors for semantic search
+    
+    Args:
+        post (PostCreate): Post creation data including title, content, and optional fields
+        current_user (User): The authenticated user creating the post
+        
+    Returns:
+        PostResponse: The created blog post
+        
+    Raises:
+        HTTPException: If user is not authenticated or is a guest user
     """
     post_data = post.model_dump()
     
@@ -259,13 +303,24 @@ async def update_post(
     db: Session = Depends(get_db)
 ):
     """
-    Update post by ID (author or superuser only)
+    Update an existing blog post (authenticated users only)
     
-    - Automatically regenerates post excerpt using AI if not provided
-    - Automatically generates tags using AI if none provided
-    - Updates slug when title changes
-    - Recalculates reading time when content changes
-    - Updates embedding vectors for semantic search
+    This endpoint allows updating an existing blog post. The update process includes:
+    - Validating user permissions
+    - Updating post content and metadata
+    - Regenerating embeddings if content changes
+    - Maintaining post history
+    
+    Args:
+        post_id (int): ID of the post to update
+        post_update (PostCreate): Updated post data
+        current_user (User): The authenticated user updating the post
+        
+    Returns:
+        PostResponse: The updated blog post
+        
+    Raises:
+        HTTPException: If user is not authenticated, is a guest user, or post not found
     """
     post = db.query(Post).filter(Post.post_id == post_id).first()
     if not post:
@@ -349,7 +404,22 @@ async def delete_post(
     current_user: User = Depends(get_non_guest_superuser),
     db: Session = Depends(get_db)
 ):
-    """Delete post by ID (superuser only)"""
+    """
+    Delete a blog post (superusers only)
+    
+    This endpoint permanently deletes a blog post from the system.
+    Only superusers have permission to delete posts.
+    
+    Args:
+        post_id (int): ID of the post to delete
+        current_user (User): The authenticated superuser deleting the post
+        
+    Returns:
+        DeletePostResponse: Confirmation message and deleted post information
+        
+    Raises:
+        HTTPException: If user is not authenticated, is not a superuser, or post not found
+    """
     post = db.query(Post).filter(Post.post_id == post_id).first()
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()

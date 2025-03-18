@@ -42,11 +42,28 @@ from app.schemas.statistics import (
 router = APIRouter(
     prefix="/personal-transactions",
     tags=['Personal Transactions']
-)
+    )
 
 # Account endpoints
 @router.post("/accounts", response_model=TrxAccountResponse)
 def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Create a new financial account
+    
+    This endpoint creates a new account (bank account, credit card, or other) for the user.
+    For credit card accounts, it automatically creates an initial balance transaction equal to the limit.
+    
+    Args:
+        account (TrxAccountCreate): Account creation data including name, type, and optional limit
+        db (Session): Database session
+        current_user (User): The authenticated user creating the account
+        
+    Returns:
+        TrxAccountResponse: Created account information and success message
+        
+    Raises:
+        HTTPException: If user is not authenticated or is a guest user
+    """
     # Create and validate account object
     new_account = prepare_account_for_db(account.model_dump(), current_user.user_id)
     
@@ -93,6 +110,24 @@ def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), cur
 
 @router.put("/accounts/{account_id}", response_model=TrxAccountResponse)
 def update_account(account_id: int, account: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Update an existing financial account
+    
+    This endpoint allows updating an account's details. For credit card accounts,
+    it ensures that a limit is specified.
+    
+    Args:
+        account_id (int): ID of the account to update
+        account (TrxAccountCreate): Updated account data
+        db (Session): Database session
+        current_user (User): The authenticated user updating the account
+        
+    Returns:
+        TrxAccountResponse: Updated account information and success message
+        
+    Raises:
+        HTTPException: If account not found or user is not authorized
+    """
     # Validate that account exists and belongs to user
     existing_account = validate_account(db, account_id, current_user.user_id)
     
@@ -113,6 +148,23 @@ def update_account(account_id: int, account: TrxAccountCreate, db: Session = Dep
 
 @router.delete("/accounts/{account_id}", response_model=TrxDeleteAccountResponse)
 def delete_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Delete a financial account
+    
+    This endpoint permanently deletes an account and its associated transactions.
+    Only the account owner can delete their accounts.
+    
+    Args:
+        account_id (int): ID of the account to delete
+        db (Session): Database session
+        current_user (User): The authenticated user deleting the account
+        
+    Returns:
+        TrxDeleteAccountResponse: Deletion confirmation and deleted account information
+        
+    Raises:
+        HTTPException: If account not found or user is not authorized
+    """
     # Validate account
     account = validate_account(db, account_id, current_user.user_id)
     
@@ -131,6 +183,27 @@ def delete_account(account_id: int, db: Session = Depends(get_db), current_user:
 
 @router.get("/accounts/{account_id}/balance", response_model=AccountBalanceResponse)
 def get_account_balance(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Get detailed balance information for an account
+    
+    This endpoint provides comprehensive balance information including:
+    - Current balance
+    - Total income and expenses
+    - Transfer amounts (in/out)
+    - Transfer fees
+    - Payable balance (for credit cards)
+    
+    Args:
+        account_id (int): ID of the account to get balance for
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the balance
+        
+    Returns:
+        AccountBalanceResponse: Detailed balance information and account details
+        
+    Raises:
+        HTTPException: If account not found or user is not authorized
+    """
     account = db.query(AccountModel).filter(AccountModel.account_id == account_id, AccountModel.user_id == current_user.user_id).first()
     if not account:
         raise HTTPException(
@@ -168,16 +241,22 @@ def get_accounts(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get all accounts for the current user with optional filtering by account type,
-    including calculated balance for each account
+    Get all accounts for the current user with optional filtering
+    
+    This endpoint retrieves all accounts owned by the user, with optional filtering
+    by account type. For each account, it includes:
+    - Basic account information
+    - Current balance
+    - Transaction totals
+    - Payable balance (for credit cards)
     
     Args:
-        account_type: Optional filter for account type ('bank_account', 'credit_card', or 'other')
-        db: Database session
-        current_user: Current authenticated user
+        account_type (str, optional): Filter accounts by type ('bank_account', 'credit_card', or 'other')
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the accounts
         
     Returns:
-        List of accounts with calculated balances
+        List[TrxAccountWithBalance]: List of accounts with their current balances and transaction totals
     """
     # Get accounts based on filters
     accounts = get_filtered_accounts(db, current_user.user_id, account_type)
@@ -205,6 +284,23 @@ def get_accounts(
 # Category endpoints
 @router.post("/categories", response_model=TrxCategoryResponse)
 def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Create a new transaction category
+    
+    This endpoint creates a new category for organizing transactions by type
+    (income, expense, or transfer).
+    
+    Args:
+        category (TrxCategoryCreate): Category creation data including name and type
+        db (Session): Database session
+        current_user (User): The authenticated user creating the category
+        
+    Returns:
+        TrxCategoryResponse: Created category information and success message
+        
+    Raises:
+        HTTPException: If user is not authenticated or is a guest user
+    """
     # Create and validate category object
     new_category = prepare_category_for_db(category.model_dump(), current_user.user_id)
     
@@ -216,6 +312,24 @@ def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), 
 
 @router.put("/categories/{category_id}", response_model=TrxCategoryResponse)
 def update_category(category_id: int, category: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Update an existing transaction category
+    
+    This endpoint allows updating a category's details. Only the category owner
+    can modify their categories.
+    
+    Args:
+        category_id (int): ID of the category to update
+        category (TrxCategoryCreate): Updated category data
+        db (Session): Database session
+        current_user (User): The authenticated user updating the category
+        
+    Returns:
+        TrxCategoryResponse: Updated category information and success message
+        
+    Raises:
+        HTTPException: If category not found or user is not authorized
+    """
     # Validate category
     existing_category = validate_category(db, category_id, current_user.user_id)
     
@@ -229,6 +343,23 @@ def update_category(category_id: int, category: TrxCategoryCreate, db: Session =
 
 @router.delete("/categories/{category_id}", response_model=TrxDeleteCategoryResponse)
 def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Delete a transaction category
+    
+    This endpoint permanently deletes a category. Only the category owner
+    can delete their categories.
+    
+    Args:
+        category_id (int): ID of the category to delete
+        db (Session): Database session
+        current_user (User): The authenticated user deleting the category
+        
+    Returns:
+        TrxDeleteCategoryResponse: Deletion confirmation and deleted category information
+        
+    Raises:
+        HTTPException: If category not found or user is not authorized
+    """
     # Validate category
     category = validate_category(db, category_id, current_user.user_id)
     
@@ -252,15 +383,18 @@ def get_categories(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get all categories for the current user with optional filtering by category type
+    Get all categories for the current user with optional filtering
+    
+    This endpoint retrieves all categories owned by the user, with optional
+    filtering by category type (income, expense, or transfer).
     
     Args:
-        category_type: Optional filter for category type ('income' or 'expense')
-        db: Database session
-        current_user: Current authenticated user
+        category_type (str, optional): Filter categories by type
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the categories
         
     Returns:
-        List of categories
+        List[TrxCategory]: List of categories matching the filter criteria
     """
     categories = get_filtered_categories(db, current_user.user_id, category_type)
     return categories
@@ -268,6 +402,23 @@ def get_categories(
 # Transaction endpoints
 @router.post("/transactions", response_model=TransactionResponse)
 def create_transaction(transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Create a new transaction
+    
+    This endpoint creates a new transaction (income, expense, or transfer) with
+    validation for account and category compatibility.
+    
+    Args:
+        transaction (TransactionCreate): Transaction creation data including amount, type, account, and category
+        db (Session): Database session
+        current_user (User): The authenticated user creating the transaction
+        
+    Returns:
+        TransactionResponse: Created transaction information and success message
+        
+    Raises:
+        HTTPException: If validation fails or user is not authorized
+    """
     # Validate account exists and belongs to user
     account = validate_account(db, transaction.account_id, current_user.user_id)
     
@@ -311,6 +462,24 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
 
 @router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
 def update_transaction(transaction_id: int, transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Update an existing transaction
+    
+    This endpoint allows updating a transaction's details. Only the transaction
+    owner can modify their transactions.
+    
+    Args:
+        transaction_id (int): ID of the transaction to update
+        transaction (TransactionCreate): Updated transaction data
+        db (Session): Database session
+        current_user (User): The authenticated user updating the transaction
+        
+    Returns:
+        TransactionResponse: Updated transaction information and success message
+        
+    Raises:
+        HTTPException: If transaction not found or user is not authorized
+    """
     # Check if transaction exists and belongs to user
     transaction_query = db.query(Transaction).filter(
         Transaction.transaction_id == transaction_id,
@@ -375,6 +544,23 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, db: 
 
 @router.delete("/transactions/{transaction_id}", response_model=DeleteTransactionResponse)
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+    """
+    Delete a transaction
+    
+    This endpoint permanently deletes a transaction. Only the transaction
+    owner can delete their transactions.
+    
+    Args:
+        transaction_id (int): ID of the transaction to delete
+        db (Session): Database session
+        current_user (User): The authenticated user deleting the transaction
+        
+    Returns:
+        DeleteTransactionResponse: Deletion confirmation and deleted transaction information
+        
+    Raises:
+        HTTPException: If transaction not found or user is not authorized
+    """
     # Find transaction
     transaction_query = db.query(Transaction).filter(
         Transaction.transaction_id == transaction_id,
@@ -416,24 +602,30 @@ def get_transactions(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get transactions for the current user with various filtering options
+    Get paginated list of transactions with advanced filtering
+    
+    This endpoint retrieves transactions with various filters:
+    - Account and category filtering
+    - Transaction type filtering
+    - Date range filtering
+    - Sorting and pagination
     
     Args:
-        account_name: Optional filter by account name (will match partially)
-        category_name: Optional filter by category name (will match partially)
-        transaction_type: Optional filter by transaction type ('income', 'expense', 'transfer')
-        start_date: Optional start date for custom date range filter
-        end_date: Optional end date for custom date range filter
-        date_filter_type: Optional filter by predefined date range ('day', 'week', 'month', 'year')
-        order_by: Field to order by (default: 'created_at')
-        sort_order: Sort order ('asc' or 'desc', default: 'desc')
-        limit: Maximum number of results to return (default: 10)
-        skip: Number of results to skip for pagination (default: 0)
-        db: Database session
-        current_user: Current authenticated user
+        account_name (str, optional): Filter by account name
+        category_name (str, optional): Filter by category name
+        transaction_type (str, optional): Filter by transaction type
+        start_date (datetime, optional): Start date for filtering
+        end_date (datetime, optional): End date for filtering
+        date_filter_type (str, optional): Type of date filtering
+        order_by (str): Field to sort by
+        sort_order (str): Sort order ('asc' or 'desc')
+        limit (int): Maximum number of transactions to return
+        skip (int): Number of transactions to skip
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the transactions
         
     Returns:
-        List of transactions matching the filters with pagination metadata
+        TransactionList: Paginated list of transactions with total count
     """
     try:
         # Get the base query with all filters applied but without pagination
@@ -492,17 +684,24 @@ def get_financial_summary(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get financial summary for a given period
+    Get financial summary statistics
+    
+    This endpoint provides a comprehensive financial summary including:
+    - Total income and expenses
+    - Net income
+    - Average transaction amounts
+    - Transaction counts
+    - Period-specific calculations
     
     Args:
-        start_date: Optional start date for custom date range
-        end_date: Optional end date for custom date range
-        period: Period to calculate summary for ('day', 'week', 'month', 'year', 'all')
-        db: Database session
-        current_user: Current authenticated user
+        start_date (datetime, optional): Start date for statistics
+        end_date (datetime, optional): End date for statistics
+        period (str): Time period for calculations (day, week, month, year, all)
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the statistics
         
     Returns:
-        Summary of financial data for the specified period
+        FinancialSummaryResponse: Detailed financial summary statistics
     """
     # Calculate date range based on period if not provided
     if not start_date or not end_date:
@@ -556,18 +755,24 @@ def get_category_distribution(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get distribution of transactions by category for a given period
+    Get transaction distribution by category
+    
+    This endpoint provides statistics about how transactions are distributed
+    across different categories, including:
+    - Category-wise totals
+    - Percentage distributions
+    - Period-specific calculations
     
     Args:
-        transaction_type: Type of transactions to analyze (income or expense)
-        start_date: Optional start date for custom date range
-        end_date: Optional end date for custom date range
-        period: Period to analyze trends for ('day', 'week', 'month', 'year', 'all')
-        db: Database session
-        current_user: Current authenticated user
+        transaction_type (str): Type of transactions to analyze
+        start_date (datetime, optional): Start date for statistics
+        end_date (datetime, optional): End date for statistics
+        period (str): Time period for calculations
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the statistics
         
     Returns:
-        Distribution of transactions by category with percentages
+        CategoryDistributionResponse: Category-wise transaction distribution
     """
     # Validate transaction type
     if transaction_type not in ("income", "expense"):
@@ -652,17 +857,22 @@ def get_transaction_trends(
     """
     Get transaction trends over time
     
+    This endpoint provides time-series data about transactions, including:
+    - Daily/weekly/monthly trends
+    - Multiple transaction type analysis
+    - Period-specific aggregations
+    
     Args:
-        start_date: Optional start date for custom date range
-        end_date: Optional end date for custom date range
-        period: Period to analyze trends for ('day', 'week', 'month', 'year', 'all')
-        group_by: How to group results ('day', 'week', 'month', 'year')
-        transaction_types: Types of transactions to include in the analysis
-        db: Database session
-        current_user: Current authenticated user
+        start_date (datetime, optional): Start date for trends
+        end_date (datetime, optional): End date for trends
+        period (str): Time period for calculations
+        group_by (str): Grouping interval (day, week, month)
+        transaction_types (List[str]): Types of transactions to analyze
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the trends
         
     Returns:
-        Trends of transactions over time
+        TransactionTrendsResponse: Time-series transaction trends
     """
     # Calculate date range if not provided
     if not start_date or not end_date:
@@ -747,15 +957,19 @@ def get_account_summary(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get a summary of all accounts with balances and credit utilization
+    Get summary statistics for all accounts
+    
+    This endpoint provides an overview of all accounts, including:
+    - Account balances
+    - Transaction totals
+    - Account-specific statistics
     
     Args:
-        db: Database session
-        current_user: Current authenticated user
+        db (Session): Database session
+        current_user (User): The authenticated user requesting the summary
         
     Returns:
-        Summary of all accounts with total balance, credit utilization, and balance by account type.
-        Accounts are sorted by the time of the latest transaction using that account.
+        AccountSummaryResponse: Summary statistics for all accounts
     """
     # Get all accounts for the user
     accounts = db.query(AccountModel).filter(AccountModel.user_id == current_user.user_id).all()

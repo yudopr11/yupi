@@ -23,7 +23,24 @@ async def send_email_async(
     body: str,
     background_tasks: BackgroundTasks
 ):
-    """Send an email asynchronously"""
+    """
+    Send an HTML email asynchronously using background tasks
+    
+    This function creates an email message and schedules it to be sent
+    in the background, allowing the API to respond quickly without
+    waiting for the email operation to complete.
+    
+    Args:
+        subject (str): Email subject line
+        recipients (List[EmailStr]): List of recipient email addresses
+        body (str): HTML-formatted email content
+        background_tasks (BackgroundTasks): FastAPI background task manager
+            to schedule the email sending
+    
+    Note:
+        This function doesn't wait for the email to be sent.
+        It only schedules the sending operation as a background task.
+    """
     message = MessageSchema(
         subject=subject,
         recipients=recipients,
@@ -43,7 +60,22 @@ async def send_password_reset_email(
     token: str,
     background_tasks: BackgroundTasks
 ):
-    """Send password reset email with token"""
+    """
+    Send a password reset email containing a reset token
+    
+    This function creates a formatted HTML email with instructions
+    for resetting a password, including the secure reset token.
+    The email is sent asynchronously as a background task.
+    
+    Args:
+        email (EmailStr): Recipient's email address
+        token (str): The password reset token that allows the user to reset their password
+        background_tasks (BackgroundTasks): FastAPI background task manager
+    
+    Note:
+        The reset token will expire after the time specified in
+        settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
+    """
     subject = "Password Reset Code - Your Account"
     body = f"""
     <html>

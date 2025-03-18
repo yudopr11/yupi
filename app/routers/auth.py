@@ -38,8 +38,10 @@ from app.schemas.error import (
     DELETE_SELF_ERROR
 )
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
-
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"]
+)
 
 @router.get(
     "/users", 
@@ -58,6 +60,9 @@ async def get_users(
     
     This endpoint returns all registered users in the system.
     Only superusers have access to this endpoint.
+    
+    Returns:
+        List[UserResponse]: A list of all users in the system, ordered by creation date (newest first)
     """
     users = db.query(User).order_by(User.created_at.desc()).all()
     return users 
@@ -77,7 +82,21 @@ async def register(
     current_superuser: User = Depends(get_current_superuser),
     db: Session = Depends(get_db)
 ):
-    """Register new user (superuser only)"""
+    """
+    Register new user (superuser only)
+    
+    This endpoint allows superusers to create new user accounts in the system.
+    The password is automatically hashed before storage.
+    
+    Args:
+        user (UserCreate): User creation data including username, email, password, and superuser status
+        
+    Returns:
+        UserResponse: The created user's information
+        
+    Raises:
+        HTTPException: If username or email is already taken
+    """
     if db.query(User).filter(User.username == user.username).first():
         USERNAME_TAKEN_ERROR.raise_exception()
     
@@ -108,7 +127,25 @@ async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Session = Depends(get_db)
 ):
-    """Login to get access token (in response) and refresh token (in HTTP-only cookie)"""
+    """
+    Login to get access token and refresh token
+    
+    This endpoint authenticates a user and provides them with:
+    - An access token in the response body
+    - A refresh token as an HTTP-only cookie
+    
+    The access token is used for API authentication, while the refresh token
+    can be used to obtain new access tokens without re-logging in.
+    
+    Args:
+        form_data (OAuth2PasswordRequestForm): Login credentials (username and password)
+        
+    Returns:
+        Token: Access token and token type
+        
+    Raises:
+        HTTPException: If credentials are invalid
+    """
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.password):
         UNAUTHORIZED_ERROR.raise_exception()
@@ -119,10 +156,10 @@ async def login(
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        httponly=True,
-        secure=True,  # Only send cookie over HTTPS
-        samesite="lax",  # Protect against CSRF
-        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60  # Convert days to seconds
+        httponly=True,  # Only send cookie over HTTPS
+        secure=True,  # Protect against CSRF
+        samesite="lax",  # Convert days to seconds
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
     )
     
     return {
@@ -143,7 +180,21 @@ async def refresh_token(
     refresh_token: Annotated[str | None, Cookie(alias="refresh_token")] = None,
     db: Session = Depends(get_db)
 ):
-    """Get new access token using refresh token from HTTP-only cookie"""
+    """
+    Get new access token using refresh token
+    
+    This endpoint uses the refresh token stored in an HTTP-only cookie to
+    generate a new access token without requiring the user to log in again.
+    
+    Args:
+        refresh_token (str | None): Refresh token from HTTP-only cookie
+        
+    Returns:
+        Token: New access token and token type
+        
+    Raises:
+        HTTPException: If refresh token is invalid or missing
+    """
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -173,7 +224,15 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(response: Response):
-    """Logout by clearing the refresh token cookie"""
+    """
+    Logout by clearing the refresh token cookie
+    
+    This endpoint invalidates the user's session by removing the refresh token
+    cookie. The user will need to log in again to get new tokens.
+    
+    Returns:
+        dict: Success message
+    """
     response.delete_cookie(
         key="refresh_token",
         httponly=True,
@@ -199,8 +258,20 @@ async def forgot_password(
     """
     Request password reset
     
-    This endpoint sends a password reset link to the provided email address
-    if it's associated with a registered user account.
+    This endpoint initiates the password reset process by:
+    1. Checking if the provided email exists in the system
+    2. Generating a secure reset token
+    3. Sending a password reset link to the user's email
+    
+    For security reasons, the same response is returned whether the email
+    exists in the system or not.
+    
+    Args:
+        request (ForgotPasswordRequest): Email address for password reset
+        background_tasks (BackgroundTasks): FastAPI background tasks for email sending
+        
+    Returns:
+        ForgotPasswordResponse: Success message (same for all cases)
     """
     # Check if user with this email exists
     user = db.query(User).filter(User.email == request.email).first()
@@ -237,8 +308,17 @@ async def reset_password(
     """
     Reset password using token
     
-    This endpoint allows a user to reset their password using a valid
-    reset token received via email.
+    This endpoint allows a user to set a new password using a valid reset token
+    received via email. The token must be valid and not expired.
+    
+    Args:
+        request (ResetPasswordRequest): Reset token and new password
+        
+    Returns:
+        ResetPasswordResponse: Success message
+        
+    Raises:
+        HTTPException: If token is invalid/expired or user not found
     """
     # Verify token
     try:
@@ -276,7 +356,22 @@ async def delete_user(
     current_superuser: User = Depends(get_current_superuser),
     db: Session = Depends(get_db)
 ):
-    """Delete user by ID (superuser only)"""
+    """
+    Delete user by ID (superuser only)
+    
+    This endpoint allows superusers to delete other user accounts from the system.
+    A superuser cannot delete their own account for safety reasons.
+    
+    Args:
+        user_id (int): ID of the user to delete
+        current_superuser (User): The authenticated superuser making the request
+        
+    Returns:
+        DeleteUserResponse: Success message and information about the deleted user
+        
+    Raises:
+        HTTPException: If user not found or attempting to delete own account
+    """
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         NOT_FOUND_ERROR("User").raise_exception()

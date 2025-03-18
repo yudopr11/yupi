@@ -10,7 +10,10 @@ from app.schemas.bill import BillAnalysisResponse
 from app.schemas.error import ErrorDetail
 from app.core.config import settings
 
-router = APIRouter(prefix="/splitbill", tags=["Bill Analysis"])
+router = APIRouter(
+    prefix="/splitbill",
+    tags=["Bill Analysis"]
+    )
 
 # In-memory rate limiting storage
 # Structure: {ip_address: {date: count}}
@@ -22,7 +25,12 @@ GUEST_RATE_LIMIT = 3  # Max requests per day for guest users
 CLEANUP_INTERVAL = timedelta(hours=1)  # Clean old records every hour
 
 def cleanup_old_records():
-    """Remove records older than 1 day to prevent memory leaks"""
+    """
+    Remove rate limiting records older than 1 day to prevent memory leaks
+    
+    This function is called periodically to clean up old rate limiting records
+    and prevent unbounded memory growth. It removes all records older than 24 hours.
+    """
     global last_cleanup
     now = datetime.now()
     
@@ -50,7 +58,19 @@ ALLOWED_IMAGE_TYPES = [
 ]
 
 def validate_image(file: UploadFile) -> None:
-    """Validate that the uploaded file is an image"""
+    """
+    Validate that the uploaded file is an image and meets size requirements
+    
+    This function checks if the uploaded file:
+    1. Has an allowed MIME type
+    2. Is under the maximum file size limit (5MB)
+    
+    Args:
+        file (UploadFile): The uploaded file to validate
+        
+    Raises:
+        HTTPException: If file type is not allowed or file is too large
+    """
     if not file.content_type in ALLOWED_IMAGE_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -82,7 +102,28 @@ async def _analyze_bill(
     model: str = "o3-mini",
     temperature: float = 1
 ):
-    """Internal helper function to analyze bill images"""
+    """
+    Internal helper function to analyze bill images using OpenAI's vision and language models
+    
+    This function performs the core bill analysis by:
+    1. Validating and processing the uploaded image
+    2. Using GPT-4 Vision to analyze the bill image if no description is provided
+    3. Using the specified model to generate a detailed breakdown of the bill
+    4. Calculating individual shares, VAT, service charges, and discounts
+    
+    Args:
+        image (UploadFile): The bill image to analyze
+        description (str): Order details description
+        image_description (str, optional): Pre-analyzed image description
+        model (str): OpenAI model to use for analysis
+        temperature (float): Temperature parameter for model generation
+        
+    Returns:
+        dict: Detailed bill analysis including individual shares and totals
+        
+    Raises:
+        HTTPException: If image is invalid or analysis fails
+    """
     try:
         # Initialize OpenAI client with API key from settings
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -305,7 +346,32 @@ async def analyze_bill(
     image_description: str = Form(None),
     current_user: User = Depends(get_current_user)
 ):
-    """Analyze bill image and split costs based on description (authenticated users only)"""
+    """
+    Analyze a bill image and calculate fair splits between multiple people
+    
+    This endpoint processes a bill image and order description to:
+    1. Validate the uploaded image
+    2. Use AI to analyze the bill contents
+    3. Calculate individual shares including:
+       - Item costs
+       - VAT shares
+       - Service charges
+       - Discounts
+    4. Generate a detailed breakdown of the bill split
+    
+    Args:
+        request (Request): FastAPI request object for rate limiting
+        image (UploadFile): The bill image to analyze
+        description (str): Order details description
+        image_description (str, optional): Pre-analyzed image description
+        current_user (User): The authenticated user making the request
+        
+    Returns:
+        BillAnalysisResponse: Detailed analysis of the bill split
+        
+    Raises:
+        HTTPException: If image is invalid, rate limit exceeded, or analysis fails
+    """
     
     # Check rate limit for guest users
     if current_user.username == "guest":

@@ -15,13 +15,17 @@ def validate_account(db: Session, account_id: int, user_id: int) -> TrxAccount:
     """
     Validates that an account exists and belongs to the user
     
+    This function checks if the specified account exists in the database
+    and whether it belongs to the specified user. This validation is 
+    typically performed before accessing or modifying account data.
+    
     Args:
-        db: Database session
-        account_id: ID of the account to validate
-        user_id: ID of the user who should own the account
+        db (Session): Database session
+        account_id (int): ID of the account to validate
+        user_id (int): ID of the user who should own the account
         
     Returns:
-        The account object if valid
+        TrxAccount: The account object if valid
         
     Raises:
         HTTPException: If account doesn't exist or doesn't belong to user
@@ -43,13 +47,18 @@ def validate_category(db: Session, category_id: Optional[int], user_id: int) -> 
     """
     Validates that a category exists and belongs to the user
     
+    This function checks if the specified category exists in the database
+    and whether it belongs to the specified user. This validation is
+    typically performed before accessing or modifying category data.
+    If category_id is None, this function returns None without validation.
+    
     Args:
-        db: Database session
-        category_id: ID of the category to validate (can be None)
-        user_id: ID of the user who should own the category
+        db (Session): Database session
+        category_id (Optional[int]): ID of the category to validate, can be None
+        user_id (int): ID of the user who should own the category
         
     Returns:
-        The category object if valid, or None if category_id is None
+        Optional[TrxCategory]: The category object if valid, or None if category_id is None
         
     Raises:
         HTTPException: If category doesn't exist or doesn't belong to user
@@ -74,9 +83,13 @@ def validate_transaction_category_match(transaction_type: TransactionType, categ
     """
     Validates that the transaction type matches the category type
     
+    This function ensures that income transactions use income categories
+    and expense transactions use expense categories. This validation
+    maintains data integrity and consistent categorization of transactions.
+    
     Args:
-        transaction_type: Type of the transaction
-        category: TrxCategory object to validate against (can be None)
+        transaction_type (TransactionType): Type of the transaction (INCOME, EXPENSE, TRANSFER)
+        category (Optional[TrxCategory]): TrxCategory object to validate against, can be None
         
     Raises:
         HTTPException: If transaction type doesn't match category type
@@ -107,19 +120,28 @@ def validate_transfer(
     """
     Validates transfer transaction details
     
+    This function performs comprehensive validation for transfer transactions,
+    checking that:
+    - Non-transfer transactions don't have transfer fees
+    - Transfer transactions have a destination account
+    - Transfer fees are non-negative
+    - Source and destination accounts are different
+    - Destination account exists and belongs to the user
+    
     Args:
-        transaction_type: Type of the transaction
-        destination_account_id: ID of destination account
-        source_account_id: ID of source account
-        transfer_fee: Fee for the transfer transaction
-        db: Database session
-        user_id: ID of the user
+        transaction_type (TransactionType): Type of the transaction
+        destination_account_id (Optional[int]): ID of destination account
+        source_account_id (int): ID of source account
+        transfer_fee (float): Fee for the transfer transaction
+        db (Session): Database session
+        user_id (int): ID of the user
         
     Returns:
-        The destination account object if valid, or None if not a transfer
+        Optional[TrxAccount]: The destination account object if valid,
+                            or None if not a transfer
         
     Raises:
-        HTTPException: If transfer validation fails
+        HTTPException: If any transfer validation fails
     """
     # For non-transfer transactions, ensure transfer fee is zero
     if transaction_type != TransactionType.TRANSFER:
@@ -168,12 +190,19 @@ def prepare_account_for_db(account_data: Dict[str, Any], user_id: int) -> TrxAcc
     """
     Prepares an account object for database insertion
     
+    This function creates a new TrxAccount object from provided data,
+    adds required fields like UUID, and performs validation specific
+    to account types (e.g., ensuring credit cards have a limit).
+    
     Args:
-        account_data: Dictionary containing account data
-        user_id: ID of the user who owns the account
+        account_data (Dict[str, Any]): Dictionary containing account data
+        user_id (int): ID of the user who owns the account
         
     Returns:
-        TrxAccount object ready for database insertion
+        TrxAccount: Account object ready for database insertion
+        
+    Raises:
+        HTTPException: If validation fails (e.g., credit card without limit)
     """
     if account_data.get("type") == TrxAccountType.CREDIT_CARD and account_data.get("limit") is None:
         raise HTTPException(
@@ -191,12 +220,16 @@ def prepare_category_for_db(category_data: Dict[str, Any], user_id: int) -> TrxC
     """
     Prepares a category object for database insertion
     
+    This function creates a new TrxCategory object from provided data
+    and adds required fields like UUID and user ID. It handles the
+    conversion from schema data to a database model.
+    
     Args:
-        category_data: Dictionary containing category data
-        user_id: ID of the user who owns the category
+        category_data (Dict[str, Any]): Dictionary containing category data
+        user_id (int): ID of the user who owns the category
         
     Returns:
-        TrxCategory object ready for database insertion
+        TrxCategory: Category object ready for database insertion
     """
     new_category = TrxCategory(**category_data)
     new_category.uuid = str(uuid.uuid4())
@@ -208,12 +241,16 @@ def prepare_transaction_for_db(transaction_data: Dict[str, Any], user_id: int) -
     """
     Prepares a transaction object for database insertion
     
+    This function creates a new Transaction object from provided data
+    and adds required fields like UUID and user ID. It handles the
+    conversion from schema data to a database model.
+    
     Args:
-        transaction_data: Dictionary containing transaction data
-        user_id: ID of the user who owns the transaction
+        transaction_data (Dict[str, Any]): Dictionary containing transaction data
+        user_id (int): ID of the user who owns the transaction
         
     Returns:
-        Transaction object ready for database insertion
+        Transaction: Transaction object ready for database insertion
     """
     new_transaction = Transaction(**transaction_data)
     new_transaction.uuid = str(uuid.uuid4())
@@ -225,11 +262,15 @@ def prepare_deleted_account_info(account: TrxAccount) -> Dict[str, Any]:
     """
     Prepares account information for deletion response
     
+    This function extracts relevant account fields for inclusion in
+    the API response after an account deletion. It selects only the
+    necessary fields that should be returned to the client.
+    
     Args:
-        account: TrxAccount object being deleted
+        account (TrxAccount): TrxAccount object being deleted
         
     Returns:
-        Dictionary with formatted account info for deletion response
+        Dict[str, Any]: Dictionary with formatted account info for deletion response
     """
     return {
         "id": account.account_id,
@@ -242,11 +283,15 @@ def prepare_deleted_category_info(category: TrxCategory) -> Dict[str, Any]:
     """
     Prepares category information for deletion response
     
+    This function extracts relevant category fields for inclusion in
+    the API response after a category deletion. It selects only the
+    necessary fields that should be returned to the client.
+    
     Args:
-        category: TrxCategory object being deleted
+        category (TrxCategory): TrxCategory object being deleted
         
     Returns:
-        Dictionary with formatted category info for deletion response
+        Dict[str, Any]: Dictionary with formatted category info for deletion response
     """
     return {
         "id": category.category_id,
@@ -259,11 +304,15 @@ def prepare_deleted_transaction_info(transaction: Transaction) -> Dict[str, Any]
     """
     Prepares transaction information for deletion response
     
+    This function extracts relevant transaction fields for inclusion in
+    the API response after a transaction deletion. It selects only the
+    necessary fields that should be returned to the client.
+    
     Args:
-        transaction: Transaction object being deleted
+        transaction (Transaction): Transaction object being deleted
         
     Returns:
-        Dictionary with formatted transaction info for deletion response
+        Dict[str, Any]: Dictionary with formatted transaction info for deletion response
     """
     return {
         "id": transaction.transaction_id,
@@ -281,13 +330,18 @@ def get_filtered_categories(
     """
     Get user categories with optional type filtering
     
+    This function retrieves categories belonging to the specified user,
+    with optional filtering by category type. It validates the category_type
+    parameter if provided and returns the results sorted by name.
+    
     Args:
-        db: Database session
-        user_id: ID of the user whose categories to retrieve
-        category_type: Optional category type to filter by
+        db (Session): Database session
+        user_id (int): ID of the user whose categories to retrieve
+        category_type (Optional[str]): Optional category type to filter by
+                                      ('income', 'expense', 'transfer')
         
     Returns:
-        List of categories
+        list[TrxCategory]: List of categories matching the criteria
         
     Raises:
         HTTPException: If category_type is invalid
@@ -322,13 +376,18 @@ def get_filtered_accounts(
     """
     Get user accounts with optional type filtering
     
+    This function retrieves accounts belonging to the specified user,
+    with optional filtering by account type. It validates the account_type
+    parameter if provided and returns the results sorted by name.
+    
     Args:
-        db: Database session
-        user_id: ID of the user whose accounts to retrieve
-        account_type: Optional account type to filter by
+        db (Session): Database session
+        user_id (int): ID of the user whose accounts to retrieve
+        account_type (Optional[str]): Optional account type to filter by
+                                     ('bank_account', 'credit_card', 'other')
         
     Returns:
-        List of accounts
+        list[TrxAccount]: List of accounts matching the criteria
         
     Raises:
         HTTPException: If account_type is invalid
@@ -359,14 +418,32 @@ def calculate_account_balance(db: Session, account_id: int, user_id: int = None)
     """
     Calculate the balance and transaction totals for a specific account
     
+    This comprehensive function computes the financial state of an account by:
+    - Calculating total income received into the account
+    - Calculating total expenses paid from the account
+    - Calculating transfers in and out of the account
+    - Calculating transfer fees paid from the account
+    - Computing the overall balance
+    - Computing payable balance for credit cards
+    
     Args:
-        db: Database session
-        account_id: ID of the account
-        user_id: ID of the user who owns the account (optional if account object is used elsewhere)
+        db (Session): Database session
+        account_id (int): ID of the account
+        user_id (int, optional): ID of the user who owns the account
+                                (optional if account object is used elsewhere)
         
     Returns:
-        Dictionary containing balance details (total_income, total_expenses, 
-        total_transfers_in, total_transfers_out, total_transfer_fees, overall balance, and payable_balance for credit cards)
+        dict: Dictionary containing balance details:
+            - total_income: Sum of all income transactions
+            - total_expenses: Sum of all expense transactions
+            - total_transfers_in: Sum of transfers into this account
+            - total_transfers_out: Sum of transfers out of this account
+            - total_transfer_fees: Sum of transfer fees paid
+            - balance: Overall account balance
+            - payable_balance: For credit cards, the amount to be paid (limit - balance)
+            
+    Raises:
+        HTTPException: If account not found
     """
     from sqlalchemy import func
     from app.models.transaction import Transaction, TransactionType
@@ -454,23 +531,35 @@ def get_filtered_transactions(
     """
     Get filtered transactions based on various criteria
     
+    This powerful function provides a comprehensive set of filtering options
+    for retrieving transactions. It supports:
+    - Filtering by account or category using partial name matching
+    - Filtering by transaction type
+    - Date range filtering using predefined periods or custom ranges
+    - Sorting and pagination
+    - Option to return query object for further manipulation
+    
     Args:
-        db: Database session
-        user_id: ID of the user who owns the transactions
-        account_name: Optional filter by account name (will match partially)
-        category_name: Optional filter by category name (will match partially)
-        transaction_type: Optional filter by transaction type ('income', 'expense', 'transfer')
-        start_date: Optional start date for custom date range filter
-        end_date: Optional end date for custom date range filter
-        date_filter_type: Optional filter by predefined date range ('day', 'week', 'month', 'year')
-        limit: Maximum number of results to return
-        skip: Number of results to skip for pagination
-        order_by: Field to order by (default: 'created_at')
-        sort_order: Sort order ('asc' or 'desc', default: 'desc')
-        return_query: If True, returns the SQLAlchemy query object instead of results
+        db (Session): Database session
+        user_id (int): ID of the user who owns the transactions
+        account_name (Optional[str]): Filter by account name (will match partially)
+        category_name (Optional[str]): Filter by category name (will match partially)
+        transaction_type (Optional[str]): Filter by transaction type ('income', 'expense', 'transfer')
+        start_date (Optional[datetime]): Start date for custom date range filter
+        end_date (Optional[datetime]): End date for custom date range filter
+        date_filter_type (Optional[str]): Filter by predefined date range ('day', 'week', 'month', 'year')
+        limit (Optional[int]): Maximum number of results to return
+        skip (Optional[int]): Number of results to skip for pagination
+        order_by (Optional[str]): Field to order by (default: 'created_at')
+        sort_order (Optional[str]): Sort order ('asc' or 'desc', default: 'desc')
+        return_query (bool): If True, returns the SQLAlchemy query object instead of results
         
     Returns:
-        List of transactions matching the filters, or a query object if return_query is True
+        Union[list[Transaction], Query]: List of transactions matching the filters,
+                                       or a query object if return_query is True
+                                       
+    Raises:
+        HTTPException: If filtering parameters are invalid
     """
     from sqlalchemy import or_
     from app.models.transaction import Transaction
@@ -602,11 +691,22 @@ def calculate_date_range(period: str) -> Tuple[datetime, datetime]:
     """
     Calculate start and end dates based on period
     
+    This utility function calculates appropriate start and end dates
+    based on a specified time period. It's used primarily for financial
+    reports and statistics to define date ranges for data analysis.
+    
+    Supported periods:
+    - 'day': The current day (00:00:00 to 23:59:59)
+    - 'week': The current week from Monday to Sunday
+    - 'month': The entire current month
+    - 'year': The entire current year
+    - 'all': All time (from Jan 1, 2000 to now)
+    
     Args:
-        period: String indicating the period ('day', 'week', 'month', 'year', 'all')
+        period (str): String indicating the period ('day', 'week', 'month', 'year', 'all')
         
     Returns:
-        Tuple containing (start_date, end_date)
+        Tuple[datetime, datetime]: Tuple containing (start_date, end_date)
         
     Raises:
         ValueError: If an invalid period is provided
