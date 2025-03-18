@@ -12,6 +12,7 @@ from app.utils.auth import (
     create_token,
     verify_token,
     get_current_superuser,
+    get_current_user,
     create_password_reset_token,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS
@@ -27,7 +28,8 @@ from app.schemas.user import (
     ForgotPasswordRequest,
     ResetPasswordRequest,
     ForgotPasswordResponse,
-    ResetPasswordResponse
+    ResetPasswordResponse,
+    UserBase
 )
 from app.schemas.error import (
     ErrorDetail, 
@@ -42,6 +44,26 @@ router = APIRouter(
     prefix="/auth",
     tags=["Authentication"]
 )
+
+@router.get(
+    "/users/me", 
+    response_model=UserBase,
+    responses={
+        401: {"model": ErrorDetail, "description": "Not authenticated"}
+    }
+)
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get current user information
+    
+    This endpoint returns only the current authenticated user's username and email.
+    
+    Returns:
+        UserBase: The authenticated user's username and email
+    """
+    return current_user
 
 @router.get(
     "/users", 
