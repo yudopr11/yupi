@@ -38,12 +38,6 @@ class TokenData(BaseModel):
 class Token(BaseModel):
     """
     Schema for authentication token response
-    
-    Example:
-        {
-            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            "token_type": "bearer"
-        }
     """
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(..., description="Token type (always 'bearer')", example="bearer")
@@ -72,22 +66,12 @@ class ResetPasswordRequest(BaseModel):
 class ForgotPasswordResponse(BaseModel):
     """
     Schema for forgot password response
-    
-    Example:
-        {
-            "message": "If the email exists in our system, a reset token will be sent."
-        }
     """
     message: str = Field(..., description="Response message", example="If the email exists in our system, a reset token will be sent.")
 
 class ResetPasswordResponse(BaseModel):
     """
     Schema for reset password response
-    
-    Example:
-        {
-            "message": "Password has been reset successfully"
-        }
     """
     message: str = Field(..., description="Response message", example="Password has been reset successfully")
 
@@ -100,15 +84,5 @@ class DeletedUserInfo(DeletedItemInfo):
 class DeleteUserResponse(DeleteResponse[DeletedUserInfo]):
     """
     Schema for delete user response
-    
-    Example:
-        {
-            "message": "User has been deleted successfully",
-            "deleted_item": {
-                "id": 1,
-                "username": "johndoe",
-                "uuid": "123e4567-e89b-12d3-a456-426614174000"
-            }
-        }
     """
     pass 

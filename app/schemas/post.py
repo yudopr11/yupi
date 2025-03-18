@@ -70,16 +70,6 @@ class DeletedPostInfo(DeletedItemInfo):
 class DeletePostResponse(DeleteResponse[DeletedPostInfo]):
     """
     Schema for delete post response
-    
-    Example:
-        {
-            "message": "Post has been deleted successfully",
-            "deleted_item": {
-                "id": 1,
-                "title": "My First Blog Post",
-                "uuid": "123e4567-e89b-12d3-a456-426614174000"
-            }
-        }
     """
     pass
 

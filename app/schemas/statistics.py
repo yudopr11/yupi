@@ -5,7 +5,7 @@ from decimal import Decimal
 
 class PeriodInfo(BaseModel):
     """
-    Schema for period information in statistics responses
+    Schema for period information used in statistics
     """
     start_date: datetime = Field(..., description="Start date of the period")
     end_date: datetime = Field(..., description="End date of the period")
@@ -13,7 +13,7 @@ class PeriodInfo(BaseModel):
 
 class FinancialTotals(BaseModel):
     """
-    Schema for financial totals
+    Schema for financial totals in a given period
     """
     income: Decimal = Field(Decimal('0.0'), description="Total income in the period")
     expense: Decimal = Field(Decimal('0.0'), description="Total expenses in the period")
@@ -22,29 +22,14 @@ class FinancialTotals(BaseModel):
 
 class FinancialSummaryResponse(BaseModel):
     """
-    Schema for financial summary endpoint response
-    
-    Example:
-        {
-            "period": {
-                "start_date": "2023-01-01T00:00:00Z",
-                "end_date": "2023-01-31T23:59:59Z",
-                "period_type": "month"
-            },
-            "totals": {
-                "income": 5000.0,
-                "expense": 3000.0,
-                "transfer": 1000.0,
-                "net": 2000.0
-            }
-        }
+    Schema for financial summary response including period and totals
     """
-    period: PeriodInfo
-    totals: FinancialTotals
+    period: PeriodInfo = Field(..., description="Period information for the summary")
+    totals: FinancialTotals = Field(..., description="Financial totals for the period")
 
 class CategoryDistributionItem(BaseModel):
     """
-    Schema for individual category in distribution
+    Schema for individual category distribution item
     """
     name: str = Field(..., description="Category name")
     uuid: UUID4 = Field(..., description="Category UUID")
@@ -53,41 +38,16 @@ class CategoryDistributionItem(BaseModel):
 
 class CategoryDistributionResponse(BaseModel):
     """
-    Schema for category distribution endpoint response
-    
-    Example:
-        {
-            "period": {
-                "start_date": "2023-01-01T00:00:00Z",
-                "end_date": "2023-01-31T23:59:59Z",
-                "period_type": "month"
-            },
-            "transaction_type": "expense",
-            "total": 3000.0,
-            "categories": [
-                {
-                    "name": "Groceries",
-                    "uuid": "123e4567-e89b-12d3-a456-426614174000",
-                    "total": 1000.0,
-                    "percentage": 33.33
-                },
-                {
-                    "name": "Utilities",
-                    "uuid": "123e4567-e89b-12d3-a456-426614174001",
-                    "total": 500.0,
-                    "percentage": 16.67
-                }
-            ]
-        }
+    Schema for category distribution response showing how transactions are distributed across categories
     """
-    period: PeriodInfo
-    transaction_type: str = Field(..., description="Type of transactions analyzed")
+    period: PeriodInfo = Field(..., description="Period information for the distribution")
+    transaction_type: str = Field(..., description="Type of transactions analyzed (income, expense, or transfer)")
     total: Decimal = Field(..., description="Total amount for all categories")
-    categories: List[CategoryDistributionItem]
+    categories: List[CategoryDistributionItem] = Field(..., description="List of categories with their distribution")
 
 class TrendPeriodInfo(PeriodInfo):
     """
-    Schema for trend period information with group_by
+    Schema for trend period information with grouping level
     """
     group_by: str = Field(..., description="Grouping level (day, week, month, year)")
 
@@ -103,40 +63,14 @@ class TrendDataPoint(BaseModel):
 
 class TransactionTrendsResponse(BaseModel):
     """
-    Schema for transaction trends endpoint response
-    
-    Example:
-        {
-            "period": {
-                "start_date": "2023-01-01T00:00:00Z",
-                "end_date": "2023-01-31T23:59:59Z",
-                "period_type": "month",
-                "group_by": "day"
-            },
-            "trends": [
-                {
-                    "date": "2023-01-01",
-                    "income": 500.0,
-                    "expense": 200.0,
-                    "transfer": 0.0,
-                    "net": 300.0
-                },
-                {
-                    "date": "2023-01-02",
-                    "income": 0.0,
-                    "expense": 150.0,
-                    "transfer": 100.0,
-                    "net": -150.0
-                }
-            ]
-        }
+    Schema for transaction trends response showing financial data over time
     """
-    period: TrendPeriodInfo
-    trends: List[TrendDataPoint]
+    period: TrendPeriodInfo = Field(..., description="Period information with grouping level")
+    trends: List[TrendDataPoint] = Field(..., description="List of data points showing trends over time")
 
 class AccountTypeBalances(BaseModel):
     """
-    Schema for balances by account type
+    Schema for account balances grouped by account type
     """
     bank_account: Decimal = Field(Decimal('0.0'), description="Total balance in bank accounts")
     credit_card: Decimal = Field(Decimal('0.0'), description="Total balance in credit cards")
@@ -144,12 +78,12 @@ class AccountTypeBalances(BaseModel):
 
 class AccountSummaryItem(BaseModel):
     """
-    Schema for individual account in summary
+    Schema for individual account summary item
     """
     account_id: int = Field(..., description="Account ID")
     uuid: UUID4 = Field(..., description="Account UUID")
     name: str = Field(..., description="Account name")
-    type: str = Field(..., description="Account type")
+    type: str = Field(..., description="Account type (bank_account, credit_card, other)")
     balance: Decimal = Field(..., description="Current balance")
     payable_balance: Optional[Decimal] = Field(None, description="Payable balance (for credit cards)")
     limit: Optional[Decimal] = Field(None, description="Credit limit (for credit cards)")
@@ -157,38 +91,7 @@ class AccountSummaryItem(BaseModel):
 
 class AccountSummaryResponse(BaseModel):
     """
-    Schema for account summary endpoint response
-    
-    Example:
-        {
-            "total_balance": 8000.0,
-            "available_credit": 2000.0,
-            "credit_utilization": 60.0,
-            "by_account_type": {
-                "bank_account": 5000.0,
-                "credit_card": 3000.0,
-                "other": 0.0
-            },
-            "accounts": [
-                {
-                    "account_id": 1,
-                    "uuid": "123e4567-e89b-12d3-a456-426614174000",
-                    "name": "Main Checking",
-                    "type": "bank_account",
-                    "balance": 5000.0
-                },
-                {
-                    "account_id": 2,
-                    "uuid": "123e4567-e89b-12d3-a456-426614174001",
-                    "name": "Credit Card",
-                    "type": "credit_card",
-                    "balance": 3000.0,
-                    "payable_balance": 2000.0,
-                    "limit": 5000.0,
-                    "utilization_percentage": 60.0
-                }
-            ]
-        }
+    Schema for account summary response showing overall financial position
     """
     total_balance: Decimal = Field(..., description="Total balance across all accounts")
     available_credit: Decimal = Field(..., description="Available credit across all credit cards")
