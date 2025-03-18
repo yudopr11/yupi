@@ -762,6 +762,7 @@ def get_category_distribution(
     - Category-wise totals
     - Percentage distributions
     - Period-specific calculations
+    - Uncategorized transactions (transactions without a category)
     
     Args:
         transaction_type (str): Type of transactions to analyze
@@ -788,21 +789,22 @@ def get_category_distribution(
     # Convert transaction_type to enum
     tx_type = TransactionType(transaction_type)
     
-    # Query for totals by category
+    # Query for totals by category using outer join
     query = db.query(
-        CategoryModel.name,
-        CategoryModel.uuid,
+        func.coalesce(CategoryModel.name, 'Uncategorized').label('name'),
+        func.coalesce(CategoryModel.uuid, func.uuid_generate_v4()).label('uuid'),
         func.sum(Transaction.amount).label("total")
-    ).join(
-        Transaction, 
+    ).outerjoin(
+        CategoryModel, 
         Transaction.category_id == CategoryModel.category_id
     ).filter(
         Transaction.user_id == current_user.user_id,
-        CategoryModel.user_id == current_user.user_id,
         Transaction.transaction_date.between(start_date, end_date),
         Transaction.transaction_type == tx_type
     ).group_by(
-        CategoryModel.category_id
+        CategoryModel.category_id,
+        CategoryModel.name,
+        CategoryModel.uuid
     ).order_by(
         desc("total")
     )
