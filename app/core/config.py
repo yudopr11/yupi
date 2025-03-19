@@ -3,7 +3,7 @@ from typing import List
 
 class Settings(BaseSettings):
     # Database settings
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5433/yupi_db"
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5433/postgres"
 
     # JWT settings
     SECRET_KEY: str = "your-super-secret-key-that-should-be-very-long-and-random"

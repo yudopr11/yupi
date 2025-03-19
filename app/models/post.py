@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
 from app.utils.database import Base
+from pgvector.sqlalchemy import Vector
 
 class Post(Base):
     __tablename__ = "posts"
@@ -17,7 +18,7 @@ class Post(Base):
     published = Column(Boolean, default=False)
     reading_time = Column(Integer, nullable=False)
     tags = Column(ARRAY(String), nullable=True)
-    embedding = Column(ARRAY(Float), nullable=True)  # Vector embedding for RAG search
+    embedding = Column(Vector(1536), nullable=True)  # Vector embedding for RAG search
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     author_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)

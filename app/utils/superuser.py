@@ -7,8 +7,8 @@ def create_superuser(db: Session) -> None:
     """
     Create a superuser account if it doesn't already exist
     
-    This function checks if a superuser account with the configured username 
-    exists in the database. If not, it creates a new superuser account using
+    This function checks if a superuser account exists in the database. 
+    If not, it creates a new superuser account using
     the credentials defined in the application settings.
     
     This function is typically called during application startup to ensure
@@ -25,13 +25,11 @@ def create_superuser(db: Session) -> None:
         - Creates a new user record in the database if a superuser doesn't exist
         - Prints confirmation message when a superuser is created
     """
-    # Check if superuser exists
-    superuser = db.query(User).filter(
-        User.username == settings.SUPERUSER_USERNAME
-    ).first()
+    # Check if any superuser exists
+    superuser_exists = db.query(User).filter(User.is_superuser == True).first() is not None
     
-    if not superuser:
-        # Create superuser if not exists
+    if not superuser_exists:
+        # Create superuser if no superuser exists
         superuser = User(
             username=settings.SUPERUSER_USERNAME,
             email=settings.SUPERUSER_EMAIL,

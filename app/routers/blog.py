@@ -77,7 +77,7 @@ async def get_posts(
             is_published_only = False
         
         # Get semantic search results
-        similarity_threshold = 0.5  # Minimum similarity score (0-1)
+        similarity_threshold = 0.3  # Minimum similarity score (0-1)
         vector_results = search_posts_by_embedding(
             query=search,
             db=db,

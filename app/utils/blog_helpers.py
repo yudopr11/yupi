@@ -427,7 +427,7 @@ def search_posts_by_embedding(
     query: str, 
     db: Session, 
     limit: int = 10, 
-    similarity_threshold: float = 0.7,
+    similarity_threshold: float = 0,
     published_only: bool = True
 ) -> List[Dict[str, Any]]:
     """
@@ -461,58 +461,66 @@ def search_posts_by_embedding(
     
     # Create SQL query using the cosine_similarity function
     published_filter = "AND posts.published = TRUE" if published_only else ""
+    
+    # Default threshold to 0 if not provided
+    similarity_threshold = similarity_threshold if similarity_threshold is not None else 0
+    
     sql = text(f"""
     SELECT 
-        posts.post_id, 
-        posts.title,
-        posts.slug,
-        posts.excerpt,
-        posts.tags,
-        posts.reading_time,
-        posts.published,
-        posts.created_at,
-        users.user_id as author_id,
-        users.username as author_username,
-        users.email as author_email,
-        cosine_similarity(posts.embedding, :query_embedding) as similarity
+    posts.post_id, 
+    posts.title,
+    posts.slug,
+    posts.excerpt,
+    posts.tags,
+    posts.reading_time,
+    posts.published,
+    posts.created_at,
+    users.user_id as author_id,
+    users.username as author_username,
+    users.email as author_email,
+    1 - (posts.embedding <=> CAST(:query_embedding AS vector)) as similarity
     FROM 
         posts
     JOIN
         users ON posts.author_id = users.user_id
     WHERE 
         posts.embedding IS NOT NULL
-        {published_filter}
+        AND 1 - (posts.embedding <=> CAST(:query_embedding AS vector)) >= :similarity_threshold
+        AND posts.published = TRUE
     ORDER BY 
-        similarity DESC
+        posts.embedding <=> CAST(:query_embedding AS vector)
     LIMIT :limit
     """)
     
     # Execute query
     result = db.execute(
         sql, 
-        {"query_embedding": query_embedding, "limit": limit}
+        {
+            "query_embedding": query_embedding, 
+            "limit": limit,
+            "similarity_threshold": similarity_threshold
+        }
     )
     
     # Process results
     posts = []
     for row in result:
-        if row.similarity >= similarity_threshold:
-            post_dict = {
-                "post_id": row.post_id,
-                "title": row.title,
-                "slug": row.slug,
-                "excerpt": row.excerpt,
-                "tags": row.tags,
-                "reading_time": row.reading_time,
-                "published": row.published,
-                "created_at": row.created_at,
-                "author": {
-                    "user_id": row.author_id,
-                    "username": row.author_username,
-                    "email": row.author_email
-                },
-                "similarity": float(row.similarity)
-            }
-            posts.append(post_dict)
+        post_dict = {
+            "post_id": row.post_id,
+            "title": row.title,
+            "slug": row.slug,
+            "excerpt": row.excerpt,
+            "tags": row.tags,
+            "reading_time": row.reading_time,
+            "published": row.published,
+            "created_at": row.created_at,
+            "author": {
+                "user_id": row.author_id,
+                "username": row.author_username,
+                "email": row.author_email
+            },
+            "similarity": float(row.similarity)
+        }
+        posts.append(post_dict)
     
     return posts 
