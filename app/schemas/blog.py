@@ -32,7 +32,7 @@ class PostResponse(PostBase):
     reading_time: int = Field(..., description="Estimated reading time in minutes")
     created_at: datetime = Field(..., description="Post creation timestamp")
     updated_at: datetime = Field(..., description="Post last update timestamp")
-    author: "UserBase"
+    author: "UserBase" = Field(..., alias="user")
 
     class Config:
         from_attributes = True
@@ -47,7 +47,7 @@ class PostListResponse(BaseModel):
     published: bool = Field(False, description="Is the post published?")
     created_at: datetime = Field(..., description="Post creation timestamp")
     updated_at: datetime = Field(..., description="Post last update timestamp")
-    author: "UserBase"
+    author: "UserBase" = Field(..., alias="user")
 
     class Config:
         from_attributes = True
