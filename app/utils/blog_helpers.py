@@ -484,7 +484,7 @@ def search_posts_by_embedding(
     FROM 
         blog_posts
     JOIN
-        auth_users ON blog_posts.author_id = auth_users.id
+        auth_users ON blog_posts.user_id = auth_users.id
     WHERE 
         blog_posts.embedding IS NOT NULL
         AND 1 - (blog_posts.embedding <=> CAST(:query_embedding AS vector)) >= :similarity_threshold
@@ -518,7 +518,7 @@ def search_posts_by_embedding(
             "published": row.published,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
-            "author": {
+            "user": {
                 "id": row.author_id,
                 "username": row.author_username,
                 "email": row.author_email
