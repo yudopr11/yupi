@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.middleware.cors import init_cors
-from app.routers import auth, blog, splitbill, transaction
+from app.routers import auth, blog, ngakak, cuan
 from app.utils.database import get_db
 from app.utils.superuser import create_superuser
 from app.core.config import settings
@@ -29,8 +29,8 @@ app.router.lifespan_context = lifespan
 # Include routers
 app.include_router(auth.router)
 app.include_router(blog.router)
-app.include_router(transaction.router)
-app.include_router(splitbill.router)
+app.include_router(cuan.router)
+app.include_router(ngakak.router)
 
 @app.get("/")
 async def root():

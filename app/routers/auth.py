@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import Annotated, List
+import uuid
 
 from app.utils.database import get_db
 from app.utils.auth import (
@@ -18,8 +19,8 @@ from app.utils.auth import (
     REFRESH_TOKEN_EXPIRE_DAYS
 )
 from app.utils.email import send_password_reset_email
-from app.models.user import User
-from app.schemas.user import (
+from app.models.auth import User
+from app.schemas.auth import (
     UserCreate, 
     UserResponse, 
     Token, 
@@ -374,7 +375,7 @@ async def reset_password(
     }
 )
 async def delete_user(
-    user_id: int,
+    user_id: uuid.UUID,
     current_superuser: User = Depends(get_current_superuser),
     db: Session = Depends(get_db)
 ):
@@ -385,7 +386,7 @@ async def delete_user(
     A superuser cannot delete their own account for safety reasons.
     
     Args:
-        user_id (int): ID of the user to delete
+        user_id (uuid.UUID): ID of the user to delete
         current_superuser (User): The authenticated superuser making the request
         
     Returns:
@@ -394,14 +395,14 @@ async def delete_user(
     Raises:
         HTTPException: If user not found or attempting to delete own account
     """
-    user = db.query(User).filter(User.user_id == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         NOT_FOUND_ERROR("User").raise_exception()
     
-    if user.user_id == current_superuser.user_id:
+    if user.id == current_superuser.id:
         DELETE_SELF_ERROR.raise_exception()
     
-    user_info = DeletedUserInfo(id=user.user_id, username=user.username, uuid=str(user.uuid))
+    user_info = DeletedUserInfo(id=user.id, username=user.username)
     db.delete(user)
     db.commit()
 

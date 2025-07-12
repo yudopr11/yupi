@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from slugify import slugify
 from app.core.config import settings
-from app.models.post import Post
+from app.models.blog import Post
 
 # --- Constants ---
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI's embedding model
@@ -460,35 +460,37 @@ def search_posts_by_embedding(
     query_embedding = generate_embedding(query)
     
     # Create SQL query using the cosine_similarity function
-    published_filter = "AND posts.published = TRUE" if published_only else ""
+    published_filter = "AND blog_posts.published = TRUE" if published_only else ""
     
     # Default threshold to 0 if not provided
     similarity_threshold = similarity_threshold if similarity_threshold is not None else 0
     
     sql = text(f"""
     SELECT 
-    posts.post_id, 
-    posts.title,
-    posts.slug,
-    posts.excerpt,
-    posts.tags,
-    posts.reading_time,
-    posts.published,
-    posts.created_at,
-    users.user_id as author_id,
-    users.username as author_username,
-    users.email as author_email,
-    1 - (posts.embedding <=> CAST(:query_embedding AS vector)) as similarity
+    blog_posts.id as post_id, 
+    blog_posts.title,
+    blog_posts.slug,
+    blog_posts.excerpt,
+    blog_posts.content,
+    blog_posts.tags,
+    blog_posts.reading_time,
+    blog_posts.published,
+    blog_posts.created_at,
+    blog_posts.updated_at,
+    auth_users.id as author_id,
+    auth_users.username as author_username,
+    auth_users.email as author_email,
+    1 - (blog_posts.embedding <=> CAST(:query_embedding AS vector)) as similarity
     FROM 
-        posts
+        blog_posts
     JOIN
-        users ON posts.author_id = users.user_id
+        auth_users ON blog_posts.author_id = auth_users.id
     WHERE 
-        posts.embedding IS NOT NULL
-        AND 1 - (posts.embedding <=> CAST(:query_embedding AS vector)) >= :similarity_threshold
-        AND posts.published = TRUE
+        blog_posts.embedding IS NOT NULL
+        AND 1 - (blog_posts.embedding <=> CAST(:query_embedding AS vector)) >= :similarity_threshold
+        AND blog_posts.published = TRUE
     ORDER BY 
-        posts.embedding <=> CAST(:query_embedding AS vector)
+        blog_posts.embedding <=> CAST(:query_embedding AS vector)
     LIMIT :limit
     """)
     
@@ -506,16 +508,18 @@ def search_posts_by_embedding(
     posts = []
     for row in result:
         post_dict = {
-            "post_id": row.post_id,
+            "id": row.post_id,
             "title": row.title,
             "slug": row.slug,
             "excerpt": row.excerpt,
+            "content": row.content,
             "tags": row.tags,
             "reading_time": row.reading_time,
             "published": row.published,
             "created_at": row.created_at,
+            "updated_at": row.updated_at,
             "author": {
-                "user_id": row.author_id,
+                "id": row.author_id,
                 "username": row.author_username,
                 "email": row.author_email
             },
