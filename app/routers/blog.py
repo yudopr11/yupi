@@ -273,7 +273,7 @@ async def create_post(
         **post_data,
         slug=generate_slug(post.title),
         reading_time=calculate_reading_time(post.content),
-        author_id=current_user.id
+        user_id=current_user.id
     )
     
     # Generate embedding for the post
@@ -328,7 +328,7 @@ async def update_post(
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()
     
-    if post.author_id != current_user.id and not current_user.is_superuser:
+    if post.user_id != current_user.id and not current_user.is_superuser:
         AUTHOR_PERMISSION_ERROR.raise_exception()
     
     # Convert to dict for easier manipulation
