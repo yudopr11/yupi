@@ -9,9 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from app.models.account import EnumAsString, TrxAccountType
-from app.models.transaction import TransactionType
-from app.models.category import TrxCategoryType
+from app.models.cuan import EnumAsString, TrxAccountType, TransactionType, TrxCategoryType
 
 
 # revision identifiers, used by Alembic.

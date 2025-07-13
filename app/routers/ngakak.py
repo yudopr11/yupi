@@ -5,14 +5,14 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from app.utils.auth import get_current_user
-from app.models.user import User
-from app.schemas.bill import BillAnalysisResponse
+from app.models.auth import User
+from app.schemas.ngakak import BillAnalysisResponse
 from app.schemas.error import ErrorDetail
 from app.core.config import settings
 
 router = APIRouter(
-    prefix="/splitbill",
-    tags=["Bill Analysis"]
+    prefix="/ngakak",
+    tags=["Ngakak"]
     )
 
 # In-memory rate limiting storage

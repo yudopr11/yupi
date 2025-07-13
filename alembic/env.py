@@ -13,8 +13,9 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.core.config import settings
 from app.utils.database import Base
 # Import semua model agar terdaftar di Base.metadata
-from app.models.user import User
-from app.models.post import Post
+from app.models.auth import User
+from app.models.blog import Post
+from app.models.cuan import TrxAccount, TrxCategory, Transaction
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -4,7 +4,7 @@ A FastAPI-based API service that provides various utility endpoints including bl
 
 ## Features
 
-- **Authentication System**
+- **Authentication System (Auth)**
   - JWT-based authentication with secure refresh token handling
   - HTTP-only cookie-based refresh tokens
   - User registration and management
@@ -20,7 +20,7 @@ A FastAPI-based API service that provides various utility endpoints including bl
     - Time-limited reset links
     - Email notifications for password reset requests
 
-- **Blog Management**
+- **Blog Management (Yulog & Yudas)**
   - Create, read, update, delete blog posts
   - Markdown content support
   - Tag system
@@ -49,7 +49,7 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - Calculated reading time
   - URL-friendly slugs
 
-- **Transaction Management**
+- **Transaction Management (Cuan)**
   - Create, read, update, delete financial transactions
   - Support for various transaction types (income, expense, transfer)
   - Transfer fee handling for transfer transactions
@@ -58,7 +58,7 @@ A FastAPI-based API service that provides various utility endpoints including bl
   - Transaction filtering and searching capabilities
   - Comprehensive financial reporting
 
-- **Bill Splitting Analysis**
+- **Bill Splitting Analysis (Ngakak)**
   - Upload bill images for analysis
   - AI-powered bill recognition using LLM
   - Automatic item and price detection
@@ -86,7 +86,7 @@ A FastAPI-based API service that provides various utility endpoints including bl
 
 1. **Clone the Repository**
 ```bash
-git clone https://github.com/yourusername/yupi.git
+git clone https://github.com/yudopr11/yupi.git
 cd yupi
 ```
 

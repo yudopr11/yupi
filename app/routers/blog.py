@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional, Literal
+import uuid
 from app.utils.database import get_db
 from app.utils.auth import get_non_guest_user, get_non_guest_superuser
-from app.models.post import Post
-from app.models.user import User
-from app.schemas.post import PostCreate, PostResponse, PostList, DeletedPostInfo, DeletePostResponse, PaginatedPostsResponse
+from app.models.blog import Post
+from app.models.auth import User
+from app.schemas.blog import PostCreate, PostResponse, PaginatedPostsResponse
+from app.schemas.common import DeletedItemInfo, DeleteResponse
 from app.schemas.error import (
     ErrorDetail,
     NOT_FOUND_ERROR,
@@ -271,7 +273,7 @@ async def create_post(
         **post_data,
         slug=generate_slug(post.title),
         reading_time=calculate_reading_time(post.content),
-        author_id=current_user.user_id
+        user_id=current_user.id
     )
     
     # Generate embedding for the post
@@ -297,7 +299,7 @@ async def create_post(
     }
 )
 async def update_post(
-    post_id: int,
+    post_id: uuid.UUID,
     post_update: PostCreate,
     current_user: User = Depends(get_non_guest_user),
     db: Session = Depends(get_db)
@@ -312,7 +314,7 @@ async def update_post(
     - Maintaining post history
     
     Args:
-        post_id (int): ID of the post to update
+        post_id (uuid.UUID): ID of the post to update
         post_update (PostCreate): Updated post data
         current_user (User): The authenticated user updating the post
         
@@ -322,11 +324,11 @@ async def update_post(
     Raises:
         HTTPException: If user is not authenticated, is a guest user, or post not found
     """
-    post = db.query(Post).filter(Post.post_id == post_id).first()
+    post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()
     
-    if post.author_id != current_user.user_id and not current_user.is_superuser:
+    if post.user_id != current_user.id and not current_user.is_superuser:
         AUTHOR_PERMISSION_ERROR.raise_exception()
     
     # Convert to dict for easier manipulation
@@ -392,7 +394,7 @@ async def update_post(
 
 @router.delete(
     "/admin/{post_id}", 
-    response_model=DeletePostResponse,
+    response_model=DeleteResponse[DeletedItemInfo],
     responses={
         401: {"model": ErrorDetail, "description": "Not authenticated"},
         403: {"model": ErrorDetail, "description": "Not enough permissions or guest user"},
@@ -400,7 +402,7 @@ async def update_post(
     }
 )
 async def delete_post(
-    post_id: int,
+    post_id: uuid.UUID,
     current_user: User = Depends(get_non_guest_superuser),
     db: Session = Depends(get_db)
 ):
@@ -411,7 +413,7 @@ async def delete_post(
     Only superusers have permission to delete posts.
     
     Args:
-        post_id (int): ID of the post to delete
+        post_id (uuid.UUID): ID of the post to delete
         current_user (User): The authenticated superuser deleting the post
         
     Returns:
@@ -420,12 +422,12 @@ async def delete_post(
     Raises:
         HTTPException: If user is not authenticated, is not a superuser, or post not found
     """
-    post = db.query(Post).filter(Post.post_id == post_id).first()
+    post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         NOT_FOUND_ERROR("Post").raise_exception()
     
-    post_info = DeletedPostInfo(id=post.post_id, title=post.title, uuid=post.uuid)
+    deleted_item_info = DeletedItemInfo(id=str(post.id), uuid=str(post.id))
     db.delete(post)
     db.commit()
 
-    return DeletePostResponse(message="Post has been deleted successfully", deleted_item=post_info) 
+    return DeleteResponse(message="Post has been deleted successfully", deleted_item=deleted_item_info) 

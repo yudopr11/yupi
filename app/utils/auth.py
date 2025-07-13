@@ -7,8 +7,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.utils.database import get_db
-from app.models.user import User
-from app.schemas.user import TokenPayload
+from app.models.auth import User
+from app.schemas.auth import TokenPayload
 
 # JWT configuration
 SECRET_KEY = settings.SECRET_KEY
