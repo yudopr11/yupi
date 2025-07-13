@@ -36,7 +36,7 @@ def upgrade() -> None:
     if first_user_id:
         op.execute(sa.text(f"UPDATE blog_posts SET user_id = '{first_user_id}' WHERE user_id IS NULL"))
     else:
-        raise Exception("No users found in auth_users table. Cannot set default user_id for blog_posts.")
+        continue
 
     op.alter_column('blog_posts', 'user_id',
                existing_type=sa.UUID(),
