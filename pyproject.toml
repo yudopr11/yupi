@@ -68,7 +68,7 @@ dependencies = [
     "typer==0.15.3",
     "typing-extensions==4.15.0",
     "typing-inspection==0.4.2",
-    "urllib3==2.5.0",
+    "urllib3==2.6.3",
     "uvicorn==0.34.2",
     "uvloop==0.21.0",
     "watchfiles==1.0.5",
