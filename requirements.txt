@@ -188,7 +188,7 @@ python-dotenv==1.1.0
     #   yupi
 python-jose==3.4.0
     # via yupi
-python-multipart==0.0.20
+python-multipart==0.0.22
     # via
     #   fastapi
     #   yupi
