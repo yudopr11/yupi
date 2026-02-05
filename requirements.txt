@@ -282,7 +282,7 @@ typing-inspection==0.4.2
     #   pydantic
     #   pydantic-settings
     #   yupi
-urllib3==2.5.0
+urllib3==2.6.3
     # via
     #   requests
     #   sentry-sdk
