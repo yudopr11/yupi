@@ -53,7 +53,7 @@ dependencies = [
     "python-slugify==8.0.4",
     "pyyaml==6.0.2",
     "regex==2025.11.3",
-    "requests==2.32.4",
+    "requests==2.33.0",
     "rich==14.0.0",
     "rich-toolkit==0.14.8",
     "rsa==4.9.1",
