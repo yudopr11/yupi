@@ -203,7 +203,7 @@ regex==2025.11.3
     #   fastapi-mail
     #   tiktoken
     #   yupi
-requests==2.32.4
+requests==2.33.0
     # via
     #   tiktoken
     #   yupi
