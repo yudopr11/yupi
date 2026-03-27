@@ -64,7 +64,7 @@ dnspython==2.7.0
     # via
     #   email-validator
     #   yupi
-ecdsa==0.19.1
+ecdsa==0.19.2
     # via
     #   python-jose
     #   yupi

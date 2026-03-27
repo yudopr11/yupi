@@ -19,7 +19,7 @@ dependencies = [
     "cryptography==46.0.5",
     "distro==1.9.0",
     "dnspython==2.7.0",
-    "ecdsa==0.19.1",
+    "ecdsa==0.19.2",
     "email-validator==2.3.0",
     "fastapi[standard]==0.121.0",
     "fastapi-cli[standard]==0.0.14",
