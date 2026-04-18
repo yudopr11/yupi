@@ -434,7 +434,7 @@ def get_transaction_trends(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if group_by not in ("day", "week", "month", "year"):
+    if group_by not in ("hour", "day", "week", "month", "year"):
         raise HTTPException(status_code=400, detail="Invalid group_by parameter")
     for tx_type in transaction_types:
         if tx_type not in [t.value for t in TransactionType]:
@@ -452,9 +452,10 @@ def get_transaction_trends(
     ).group_by(date_trunc, Transaction.transaction_type).order_by(date_trunc)
 
     results = query.all()
+    date_fmt = "%Y-%m-%dT%H:00:00" if group_by == "hour" else "%Y-%m-%d"
     trends_data = {}
     for date, tx_type, total in results:
-        date_str = date.strftime("%Y-%m-%d")
+        date_str = date.strftime(date_fmt)
         if date_str not in trends_data:
             trends_data[date_str] = {"date": date_str, "income": Decimal('0.0'), "expense": Decimal('0.0'), "transfer": Decimal('0.0'), "net": Decimal('0.0')}
         trends_data[date_str][tx_type.value] = total
