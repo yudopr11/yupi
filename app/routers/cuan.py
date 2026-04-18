@@ -24,6 +24,7 @@ from app.utils.cuan_helpers import (
     calculate_account_balance,
     get_filtered_transactions,
     calculate_date_range,
+    get_year_end,
     get_accounts_with_balance
 )
 from app.models.cuan import Transaction, TransactionType, TrxAccount as AccountModel, TrxAccountType, TrxCategory as CategoryModel, TrxCategoryType
@@ -130,12 +131,20 @@ def delete_account(id: uuid.UUID, db: Session = Depends(get_db), current_user: U
     return {"message": f"Account with id {id} deleted successfully", "deleted_item": deleted_info}
 
 @router.get("/accounts/{id}/balance", response_model=AccountBalanceResponse)
-def get_account_balance(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_account_balance(
+    id: uuid.UUID,
+    year: Optional[int] = FastAPIQuery(None, ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get detailed balance information for a specific account.
+
+    If `year` is provided, the balance is calculated as of the end of that year.
     """
     account = validate_account(db, id, current_user.id)
-    balance_details = calculate_account_balance(db, id, current_user.id)
+    as_of = get_year_end(year) if year is not None else None
+    balance_details = calculate_account_balance(db, id, current_user.id, as_of=as_of)
     
     response_data = {
         "account_id": id,
@@ -146,12 +155,20 @@ def get_account_balance(id: uuid.UUID, db: Session = Depends(get_db), current_us
     return {"data": response_data, "message": "Balance retrieved successfully"}
 
 @router.get("/accounts", response_model=List[TrxAccountWithBalance])
-def get_accounts(account_type: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_accounts(
+    account_type: Optional[str] = None,
+    year: Optional[int] = FastAPIQuery(None, ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get all accounts for the current user, with optional filtering and balance details.
     This endpoint is optimized to prevent N+1 query issues.
+
+    If `year` is provided, balances are calculated as of the end of that year.
     """
-    accounts_data = get_accounts_with_balance(db, current_user.id, account_type)
+    as_of = get_year_end(year) if year is not None else None
+    accounts_data = get_accounts_with_balance(db, current_user.id, account_type, as_of=as_of)
     return [TrxAccountWithBalance.model_validate(acc) for acc in accounts_data]
 
 # --- Category Endpoints ---

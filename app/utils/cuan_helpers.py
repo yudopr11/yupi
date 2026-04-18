@@ -216,7 +216,12 @@ def get_filtered_accounts(
     )
     return query.order_by(type_order, TrxAccount.name).all()
 
-def calculate_account_balance(db: Session, account_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> dict:
+def get_year_end(year: int) -> datetime:
+    """Return a UTC end-of-year boundary as the start of the next year."""
+    return datetime(year + 1, 1, 1, tzinfo=UTC)
+
+
+def calculate_account_balance(db: Session, account_id: uuid.UUID, user_id: Optional[uuid.UUID] = None, as_of: Optional[datetime] = None) -> dict:
     """
     Calculates the detailed balance of a financial account using a single, optimized query.
     """
@@ -230,6 +235,13 @@ def calculate_account_balance(db: Session, account_id: uuid.UUID, user_id: Optio
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"TrxAccount with id {account_id} not found")
 
+    totals_filter = [
+        or_(Transaction.account_id == account_id, Transaction.destination_account_id == account_id),
+        Transaction.user_id == (user_id if user_id else account.user_id)
+    ]
+    if as_of is not None:
+        totals_filter.append(Transaction.transaction_date < as_of)
+
     # Single query to aggregate all transaction types
     totals = db.query(
         func.sum(case((Transaction.transaction_type == TransactionType.INCOME, Transaction.amount), else_=0)).label("total_income"),
@@ -237,10 +249,7 @@ def calculate_account_balance(db: Session, account_id: uuid.UUID, user_id: Optio
         func.sum(case((and_(Transaction.transaction_type == TransactionType.TRANSFER, Transaction.account_id == account_id), Transaction.amount), else_=0)).label("total_transfers_out"),
         func.sum(case((and_(Transaction.transaction_type == TransactionType.TRANSFER, Transaction.account_id == account_id), Transaction.transfer_fee), else_=0)).label("total_transfer_fees"),
         func.sum(case((Transaction.destination_account_id == account_id, Transaction.amount), else_=0)).label("total_transfers_in")
-    ).filter(
-        or_(Transaction.account_id == account_id, Transaction.destination_account_id == account_id),
-        Transaction.user_id == (user_id if user_id else account.user_id)
-    ).one()
+    ).filter(*totals_filter).one()
 
     total_income = totals.total_income or Decimal('0.0')
     total_expenses = totals.total_expenses or Decimal('0.0')
@@ -264,11 +273,18 @@ def calculate_account_balance(db: Session, account_id: uuid.UUID, user_id: Optio
         "payable_balance": payable_balance
     }
 
-def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Optional[str] = None, as_of: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """
     Gets all accounts for a user with their balances, optimized to prevent N+1 queries.
     """
     # Base query for user's accounts
+    join_condition = or_(
+        Transaction.account_id == TrxAccount.id,
+        Transaction.destination_account_id == TrxAccount.id
+    )
+    if as_of is not None:
+        join_condition = and_(join_condition, Transaction.transaction_date < as_of)
+
     query = db.query(
         TrxAccount,
         func.sum(case((Transaction.transaction_type == TransactionType.INCOME, Transaction.amount), else_=0)).label("total_income"),
@@ -276,10 +292,7 @@ def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Opt
         func.sum(case((and_(Transaction.transaction_type == TransactionType.TRANSFER, Transaction.account_id == TrxAccount.id), Transaction.amount), else_=0)).label("total_transfers_out"),
         func.sum(case((and_(Transaction.transaction_type == TransactionType.TRANSFER, Transaction.account_id == TrxAccount.id), Transaction.transfer_fee), else_=0)).label("total_transfer_fees"),
         func.sum(case((Transaction.destination_account_id == TrxAccount.id, Transaction.amount), else_=0)).label("total_transfers_in")
-    ).outerjoin(Transaction, or_(
-        Transaction.account_id == TrxAccount.id,
-        Transaction.destination_account_id == TrxAccount.id
-    )).filter(TrxAccount.user_id == user_id).group_by(TrxAccount.id)
+    ).outerjoin(Transaction, join_condition).filter(TrxAccount.user_id == user_id).group_by(TrxAccount.id)
 
     # Optional filtering by account type
     if account_type:
