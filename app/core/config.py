@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     SUPERUSER_EMAIL: str = "admin@example.com"
     SUPERUSER_PASSWORD: str = "admin123"
 
+    # Cookie settings
+    COOKIE_SECURE: bool = False  # Set True in production (requires HTTPS)
+
     # CORS Settings
     CORS_ORIGINS: List[str] = ["*"]
     CORS_METHODS: List[str] = ["*"]

@@ -19,6 +19,7 @@ from app.utils.auth import (
     REFRESH_TOKEN_EXPIRE_DAYS
 )
 from app.utils.email import send_password_reset_email
+from app.core.config import settings
 from app.models.auth import User
 from app.schemas.auth import (
     UserCreate, 
@@ -179,9 +180,9 @@ async def login(
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        httponly=True,  # Only send cookie over HTTPS
-        secure=True,  # Protect against CSRF
-        samesite="lax",  # Convert days to seconds
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="lax",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
     )
     
@@ -259,7 +260,7 @@ async def logout(response: Response):
     response.delete_cookie(
         key="refresh_token",
         httponly=True,
-        secure=True,
+        secure=settings.COOKIE_SECURE,
         samesite="lax"
     )
     return {"message": "Successfully logged out"}

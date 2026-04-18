@@ -140,13 +140,16 @@ MAIL_FROM=your_email@example.com
 API_TITLE=yupi - yudopr API
 API_DESCRIPTION=API for many yudopr webapp projects
 API_VERSION=1.0.0
+
+# Cookie settings
+COOKIE_SECURE=False  # False for local dev (HTTP), True for production (HTTPS)
 ```
 
 Important: Make sure to:
 - Never commit your `.env` file to version control
 - Use strong, unique values for SECRET_KEY and passwords in production
 - Keep your OpenAI API key secure
-- Update the CORS settings if needed for your frontend
+- Update the CORS settings for your frontend — avoid wildcard `*` when `CORS_CREDENTIALS=True`
 - Configure valid email credentials for password reset functionality
   - In this API, I use my Gmail, use an App Password instead of account password
   - Ensure proper SMTP settings for your email provider
@@ -154,7 +157,10 @@ Important: Make sure to:
   - ACCESS_TOKEN_EXPIRE_MINUTES: Short-lived tokens (e.g., 30 minutes)
   - REFRESH_TOKEN_EXPIRE_DAYS: Long-lived tokens (e.g., 30 days)
   - PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: Short-lived tokens (e.g., 15 minutes)
-- Enable HTTPS in production for secure cookie handling
+- Set `COOKIE_SECURE` correctly for your environment:
+  - `False` for local development over HTTP — browser requires this to store the refresh token cookie
+  - `True` for production over HTTPS — required for secure cookie transmission
+  - **Important**: Using `COOKIE_SECURE=True` on HTTP will silently break the refresh token flow
 
 5. **Database Setup**
 
