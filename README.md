@@ -19,6 +19,7 @@ A FastAPI-based API service that provides various utility endpoints including bl
     - Secure reset token generation and validation
     - Time-limited reset links
     - Email notifications for password reset requests
+  - Automatic superuser creation on app startup
 
 - **Blog Management (Yulog & Yudas)**
   - Create, read, update, delete blog posts
@@ -44,41 +45,54 @@ A FastAPI-based API service that provides various utility endpoints including bl
     - Filter by tags (case-insensitive)
     - Pagination with customizable limits
   - Semantic search using OpenAI embeddings (RAG-based approach)
-  - Full text search (by title, excerpt, content, and tags)
-  - Filtering by tags and published status
-  - Calculated reading time
+    - 1536-dimension embeddings via `text-embedding-3-small`
+    - Vector storage in PostgreSQL via pgvector
+    - Cosine similarity ranking
   - URL-friendly slugs
 
 - **Transaction Management (Cuan)**
-  - Create, read, update, delete financial transactions
-  - Support for various transaction types (income, expense, transfer)
-  - Transfer fee handling for transfer transactions
-  - Transaction categorization
-  - Account balance tracking
-  - Transaction filtering and searching capabilities
-  - Comprehensive financial reporting
+  - Account management
+    - Support for bank accounts, credit cards, and other account types
+    - Credit card limit tracking and balance validation
+    - Auto-generated initial balance transaction for credit cards
+    - Year-based balance history
+  - Category management (income/expense categories)
+  - Transaction management
+    - Support for income, expense, and transfer transaction types
+    - Transfer fee handling
+    - Advanced filtering: by account, category, type, date range
+    - Pagination and sorting
+  - Comprehensive financial statistics
+    - Summary: total income, expense, transfer, and net balance
+    - Breakdown by category with percentage distribution
+    - Trends over time (grouped by hour, day, week, month, or year)
+    - Account summary with credit utilization metrics
 
 - **Bill Splitting Analysis (Ngakak)**
   - Upload bill images for analysis
-  - AI-powered bill recognition using LLM
-  - Automatic item and price detection
-  - Smart cost distribution
-  - VAT and service charge handling
+  - AI-powered bill recognition using GPT-4 Vision
+  - Automatic item and price detection with quantity handling
+  - Multi-currency support with automatic detection
+  - Smart cost distribution per person
+  - VAT/GST, service charge, and discount handling
+  - Per-person breakdown: items, subtotal, VAT share, service share, discount share, final amount
+  - Rate limiting for guest users (3 requests/day per IP)
 
 ## Tech Stack
 
-- **Backend**: FastAPI (Python 3.8+)
-- **Database**: PostgreSQL
-- **ORM**: SQLAlchemy
+- **Backend**: FastAPI (Python 3.12+)
+- **Database**: PostgreSQL with pgvector
+- **ORM**: SQLAlchemy 2.0
 - **Authentication**: JWT (JSON Web Tokens)
-- **AI Integration**: OpenAI LLMs
+- **AI Integration**: OpenAI LLMs & Embeddings
+- **Email**: fastapi-mail with async SMTP
 - **Migration**: Alembic
 - **Deployment**: Railway
 
 ## Prerequisites
 
-- Python 3.8 or higher
-- PostgreSQL
+- Python 3.12 or higher
+- PostgreSQL (with pgvector extension)
 - OpenAI API key
 - Git
 
@@ -184,66 +198,176 @@ uvicorn app.main:app --reload --port 8000
     - Swagger UI: http://localhost:8000/docs
     - ReDoc: http://localhost:8000/redoc
 
+## API Endpoints
+
+### Authentication (`/auth`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/auth/login` | — | Login, returns access token + sets refresh token cookie |
+| POST | `/auth/refresh` | Cookie | Get new access token using refresh token cookie |
+| POST | `/auth/logout` | Yes | Clear refresh token cookie |
+| POST | `/auth/register` | Superuser | Create new user account |
+| GET | `/auth/users` | Superuser | List all registered users |
+| GET | `/auth/users/me` | Yes | Get current user info |
+| DELETE | `/auth/users/{user_id}` | Superuser | Delete a user |
+| POST | `/auth/forgot-password` | — | Send password reset email |
+| POST | `/auth/reset-password` | — | Reset password with reset token |
+
+### Blog (`/blog`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/blog` | — | Get paginated posts with optional search & filters |
+| GET | `/blog/{slug}` | — | Get a single post by URL slug |
+| POST | `/blog/admin` | Yes | Create post (auto-generates excerpt & tags via AI) |
+| PUT | `/blog/admin/{post_id}` | Yes | Update post |
+| DELETE | `/blog/admin/{post_id}` | Superuser | Delete post |
+
+**Query parameters for `GET /blog`:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `skip` | int | Pagination offset |
+| `limit` | int | Results per page (default: 3) |
+| `search` | str | Full-text search across title, excerpt, content, tags |
+| `tag` | str | Filter by tag (case-insensitive) |
+| `published_status` | str | `published`, `unpublished`, or `all` |
+| `use_rag` | bool | Enable semantic/embedding-based search |
+
+### Financial Transactions (`/cuan`)
+
+**Accounts**
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/cuan/accounts` | Yes | Create account (bank, credit card, other) |
+| GET | `/cuan/accounts` | Yes | List all accounts with balances |
+| PUT | `/cuan/accounts/{id}` | Yes | Update account |
+| DELETE | `/cuan/accounts/{id}` | Yes | Delete account and its transactions |
+| GET | `/cuan/accounts/{id}/balance` | Yes | Get detailed balance for an account |
+
+**Categories**
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/cuan/categories` | Yes | Create income/expense category |
+| GET | `/cuan/categories` | Yes | List categories |
+| PUT | `/cuan/categories/{id}` | Yes | Update category |
+| DELETE | `/cuan/categories/{id}` | Yes | Delete category |
+
+**Transactions**
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/cuan/transactions` | Yes | Create income, expense, or transfer transaction |
+| GET | `/cuan/transactions` | Yes | Get paginated transactions with filters |
+| PUT | `/cuan/transactions/{id}` | Yes | Update transaction |
+| DELETE | `/cuan/transactions/{id}` | Yes | Delete transaction |
+
+**Query parameters for `GET /cuan/transactions`:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `account_name` | str | Filter by account |
+| `category_name` | str | Filter by category |
+| `transaction_type` | str | `income`, `expense`, or `transfer` |
+| `start_date` / `end_date` | datetime | Date range |
+| `date_filter_type` | str | Preset range: `today`, `week`, `month`, `year`, `all` |
+| `order_by` | str | Sort field: `created_at`, `transaction_date`, `amount` |
+| `sort_order` | str | `asc` or `desc` |
+| `limit` / `skip` | int | Pagination |
+
+**Statistics**
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/cuan/statistics/summary` | Yes | Income, expense, transfer totals and net balance |
+| GET | `/cuan/statistics/by-category` | Yes | Breakdown by category with percentages |
+| GET | `/cuan/statistics/trends` | Yes | Trends over time grouped by interval |
+| GET | `/cuan/statistics/account-summary` | Yes | All accounts status with credit utilization |
+
+**Common statistics query parameters:** `period` (day/week/month/year/all), `start_date`, `end_date`, `group_by` (hour/day/week/month/year), `transaction_types`.
+
+### Bill Splitting (`/ngakak`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/ngakak/analyze` | — | Analyze a bill image and split costs |
+
+**Request form fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `image` | file | Bill image (JPG, PNG, WebP, max 5 MB) |
+| `description` | str | Order details (who ordered what) |
+| `image_description` | str (optional) | Pre-analyzed image text to skip vision step |
+
+**Notes:**
+- Unauthenticated (guest) users are limited to **3 requests per day** per IP
+- Authenticated users use `o3-mini`; guests use `gpt-4o-mini`
+
 ## Deployment
 
 ### Railway
 
-Deploying to Railway is simple:
-
 1. Create an account on [Railway](https://railway.app)
-2. Click "New Project" on the Railway dashboard or "New Services" inside Railway Project
-3. Select "Deploy from GitHub repo"
-4. Choose your cloned repository
-5. Railway will automatically detect the Vite configuration and deploy your site
+2. Click "New Project" → "Deploy from GitHub repo"
+3. Choose your cloned repository
+4. Add environment variables in project settings
 
-That's it! Railway will automatically build and deploy your application. If needed, you can add environment variables in your project settings.
+Railway will automatically build and deploy your application.
 
 ## AI-Powered Features
 
 ### Smart Content Generation
 
-The blog component includes two AI-powered features that enhance the content creation process:
+The blog component includes two AI-powered features:
 
-1. **Automatic Excerpt Generation**: When a new post is created without specifying an excerpt, the system uses an LLM to generate a concise, engaging excerpt based on the post content.
+1. **Automatic Excerpt Generation**: When a new post is created without an excerpt, the system uses an LLM to generate a concise, engaging excerpt from the post content.
 
-2. **Intelligent Tag Suggestion**: When tags are not provided for a post, the system analyzes the content and suggests relevant tags. The system aims to reuse existing tags when appropriate for consistency across the blog and capitalizes tags for better readability.
+2. **Intelligent Tag Suggestion**: When tags are not provided, the system analyzes the content and suggests relevant tags, reusing existing tags from the database where appropriate and capitalizing them for consistency.
 
-3. **Semantic Search with RAG**: The blog search uses a Retrieval Augmented Generation (RAG) approach with OpenAI embeddings for more intelligent search results. This enables finding content based on semantic meaning rather than just keyword matching.
+Both features are combined into a **single LLM call** to reduce API usage and latency.
 
-### How the Semantic Search Works
+### Semantic Search (RAG)
 
-The system uses the following approach for semantic search:
+Blog search supports a Retrieval Augmented Generation approach using OpenAI embeddings:
 
-1. **Embedding Generation**: Title and excerpt of each post are embedded using OpenAI's embedding model.
-2. **Vector Storage**: Embeddings are stored as float arrays in PostgreSQL.
-3. **Similarity Calculation**: When a search query is submitted, it's embedded and compared to post embeddings using cosine similarity.
-4. **Ranked Results**: Posts are ranked by semantic similarity to the query, returning the most relevant content.
+1. **Embedding Generation**: Title and excerpt of each post are embedded via `text-embedding-3-small` (1536 dimensions).
+2. **Vector Storage**: Embeddings are stored in PostgreSQL using the pgvector extension.
+3. **Similarity Calculation**: Search queries are embedded and compared to post embeddings using cosine similarity (threshold: 0.3).
+4. **Ranked Results**: Posts are returned ranked by semantic relevance.
 
-### Using RAG Search
-
-To use the semantic search capability, add the following query parameters to the `/blog` endpoint:
-
-- `search`: Your search query
-- `use_rag`: Set to `true` to enable semantic search (otherwise, default keyword search is used)
-
-Example: `/blog?search=climate change&use_rag=true`
+To use semantic search, add `use_rag=true` to the `/blog` query:
+```
+GET /blog?search=climate change&use_rag=true
+```
 
 ### Updating Embeddings
 
-The system automatically:
-- Generates embeddings for new posts
-- Updates embeddings when posts are edited
-- Refreshes all embeddings on deployment
+Embeddings are automatically generated on post create/update and refreshed on deployment. To manually batch-update all post embeddings:
 
-Administrators can also manually update embeddings using the command:
-```
+```bash
 python scripts/update_embeddings.py --force
 ```
+
+Options:
+- `--force`: Update all posts regardless of existing embeddings
+- `--batch-size N`: Process N posts per batch (default: 50)
+
+### Bill Analysis
+
+The `/ngakak/analyze` endpoint uses a two-stage AI pipeline:
+
+1. **Image Recognition** (GPT-4 Vision): Extracts raw text and items from the bill image.
+2. **Split Calculation** (o3-mini / gpt-4o-mini): Parses the order description and produces a per-person breakdown including item costs, VAT share, service charge share, discount share, and final totals.
+
+Supports quantity-aware pricing, multi-currency detection, and flexible discount formats.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 
 ## Acknowledgments
 - Created by [yudopr](https://github.com/yudopr11)

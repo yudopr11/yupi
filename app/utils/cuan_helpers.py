@@ -401,7 +401,7 @@ def get_filtered_transactions(
     if start_date:
         query = query.filter(Transaction.transaction_date >= start_date)
     if end_date:
-        query = query.filter(Transaction.transaction_date <= end_date)
+        query = query.filter(Transaction.transaction_date <= end_date + timedelta(days=1) - timedelta(microseconds=1))
 
     valid_fields = ['created_at', 'transaction_date', 'amount']
     if order_by not in valid_fields:
