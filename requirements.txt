@@ -181,7 +181,7 @@ pygments==2.20.0
     # via
     #   rich
     #   yupi
-python-dotenv==1.1.0
+python-dotenv==1.2.2
     # via
     #   pydantic-settings
     #   uvicorn

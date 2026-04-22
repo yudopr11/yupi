@@ -47,7 +47,7 @@ dependencies = [
     "pydantic-core==2.41.4",
     "pydantic-settings==2.9.1",
     "pygments==2.20.0",
-    "python-dotenv==1.1.0",
+    "python-dotenv==1.2.2",
     "python-jose==3.4.0",
     "python-multipart==0.0.26",
     "python-slugify==8.0.4",
