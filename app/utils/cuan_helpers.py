@@ -4,6 +4,7 @@ from sqlalchemy import func, case, or_, desc, and_
 from typing import Dict, Any, Tuple, Union, Optional, List
 import uuid
 from datetime import datetime, timedelta, UTC
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import calendar
 from decimal import Decimal
 
@@ -190,31 +191,6 @@ def get_filtered_categories(
             )
     return query.order_by(TrxCategory.name).all()
 
-def get_filtered_accounts(
-    db: Session,
-    user_id: uuid.UUID,
-    account_type: Optional[str] = None
-) -> list[TrxAccount]:
-    """
-    Get user accounts with optional type filtering, sorted for display.
-    """
-    query = db.query(TrxAccount).filter(TrxAccount.user_id == user_id)
-    if account_type:
-        try:
-            filter_type = TrxAccountType(account_type.lower())
-            query = query.filter(TrxAccount.type == filter_type)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid account type: {account_type}. Must be one of: {[t.value for t in TrxAccountType]}"
-            )
-    type_order = case(
-        (TrxAccount.type == TrxAccountType.BANK_ACCOUNT, 1),
-        (TrxAccount.type == TrxAccountType.OTHER, 2),
-        (TrxAccount.type == TrxAccountType.CREDIT_CARD, 3),
-        else_=4
-    )
-    return query.order_by(type_order, TrxAccount.name).all()
 
 def get_year_end(year: int) -> datetime:
     """Return a UTC end-of-year boundary as the start of the next year."""
@@ -359,6 +335,7 @@ def get_filtered_transactions(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     date_filter_type: Optional[str] = None,
+    timezone: str = "UTC",
     order_by: str = 'created_at',
     sort_order: str = 'desc',
     return_query: bool = False
@@ -394,7 +371,7 @@ def get_filtered_transactions(
 
     if date_filter_type:
         try:
-            start_date, end_date = calculate_date_range(date_filter_type)
+            start_date, end_date = calculate_date_range(date_filter_type, timezone)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
     
@@ -412,30 +389,35 @@ def get_filtered_transactions(
 
     return query if return_query else query.all()
 
-def calculate_date_range(period: str) -> Tuple[datetime, datetime]:
+def calculate_date_range(period: str, timezone: str = "UTC") -> Tuple[datetime, datetime]:
     """
     Calculate start and end dates based on a predefined period string.
+    Boundaries are computed in the user's timezone then converted to UTC for DB queries.
     """
-    now = datetime.now(UTC)
+    try:
+        tz = ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        raise ValueError(f"Invalid timezone: '{timezone}'")
+
+    now = datetime.now(tz)
     period = period.lower()
-    
+
     if period == "day":
-        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = start_date + timedelta(days=1) - timedelta(microseconds=1)
+        start_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_local = start_local + timedelta(days=1) - timedelta(microseconds=1)
     elif period == "week":
-        start_date = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = start_date + timedelta(days=7) - timedelta(microseconds=1)
+        start_local = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_local = start_local + timedelta(days=7) - timedelta(microseconds=1)
     elif period == "month":
-        start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_local = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         _, last_day = calendar.monthrange(now.year, now.month)
-        end_date = start_date.replace(day=last_day) + timedelta(days=1) - timedelta(microseconds=1)
+        end_local = start_local.replace(day=last_day) + timedelta(days=1) - timedelta(microseconds=1)
     elif period == "year":
-        start_date = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        end_date = start_date.replace(year=now.year + 1) - timedelta(microseconds=1)
+        start_local = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_local = start_local.replace(year=now.year + 1) - timedelta(microseconds=1)
     elif period == "all":
-        start_date = datetime(2000, 1, 1, tzinfo=UTC)
-        end_date = now
+        return datetime(2000, 1, 1, tzinfo=UTC), datetime.now(UTC)
     else:
         raise ValueError(f"Invalid period: '{period}'. Must be one of: day, week, month, year, all")
-        
-    return start_date, end_date
+
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)

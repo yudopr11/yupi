@@ -19,7 +19,6 @@ from app.utils.cuan_helpers import (
     prepare_deleted_account_info,
     prepare_deleted_category_info,
     prepare_deleted_transaction_info,
-    get_filtered_accounts,
     get_filtered_categories,
     calculate_account_balance,
     get_filtered_transactions,
@@ -303,6 +302,7 @@ def get_transactions(
     account_name: Optional[str] = None, category_name: Optional[str] = None,
     transaction_type: Optional[str] = None, start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None, date_filter_type: Optional[str] = None,
+    timezone: str = FastAPIQuery(default="UTC"),
     order_by: str = 'created_at', sort_order: str = 'desc',
     limit: int = 10, skip: int = 0,
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
@@ -314,7 +314,7 @@ def get_transactions(
         query = get_filtered_transactions(
             db=db, user_id=current_user.id, account_name=account_name, category_name=category_name,
             transaction_type=transaction_type, start_date=start_date, end_date=end_date,
-            date_filter_type=date_filter_type, order_by=order_by, sort_order=sort_order, return_query=True
+            date_filter_type=date_filter_type, timezone=timezone, order_by=order_by, sort_order=sort_order, return_query=True
         )
         total_count = query.count()
         transactions = query.offset(skip).limit(limit + 1).all()
@@ -337,13 +337,14 @@ def get_transactions(
 @router.get("/statistics/summary", response_model=FinancialSummaryResponse)
 def get_financial_summary(
     start_date: Optional[datetime] = None, end_date: Optional[datetime] = None,
-    period: str = "month", db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    period: str = "month", timezone: str = FastAPIQuery(default="UTC"),
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """
     Get a financial summary for a given period.
     """
     try:
-        start_date, end_date = calculate_date_range(period) if not all([start_date, end_date]) else (start_date, end_date)
+        start_date, end_date = calculate_date_range(period, timezone) if not all([start_date, end_date]) else (start_date, end_date)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -371,6 +372,7 @@ def get_financial_summary(
 def get_category_distribution(
     transaction_type: str = "expense", start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None, period: str = "month",
+    timezone: str = FastAPIQuery(default="UTC"),
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """
@@ -379,7 +381,7 @@ def get_category_distribution(
     if transaction_type not in ("income", "expense"):
         raise HTTPException(status_code=400, detail="Transaction type must be 'income' or 'expense'")
     try:
-        start_date, end_date = calculate_date_range(period) if not all([start_date, end_date]) else (start_date, end_date)
+        start_date, end_date = calculate_date_range(period, timezone) if not all([start_date, end_date]) else (start_date, end_date)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -424,13 +426,14 @@ def get_transaction_trends(
     start_date: Optional[datetime] = None, end_date: Optional[datetime] = None,
     period: str = "month", group_by: str = "day",
     transaction_types: List[str] = FastAPIQuery(["income", "expense"]),
+    timezone: str = FastAPIQuery(default="UTC"),
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """
     Get transaction trends over time, grouped by a specified interval.
     """
     try:
-        start_date, end_date = calculate_date_range(period) if not all([start_date, end_date]) else (start_date, end_date)
+        start_date, end_date = calculate_date_range(period, timezone) if not all([start_date, end_date]) else (start_date, end_date)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
