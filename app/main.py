@@ -5,6 +5,7 @@ from app.routers import auth, blog, ngakak, cuan
 from app.utils.database import get_db
 from app.utils.superuser import create_superuser
 from app.core.config import settings
+from app.mcp.server import mcp_asgi_app
 
 app = FastAPI(
     title=settings.API_TITLE,
@@ -32,6 +33,9 @@ app.include_router(blog.router)
 app.include_router(cuan.router)
 app.include_router(ngakak.router)
 
+# MCP server: /mcp/{base64(username:password)}
+app.mount("/mcp", mcp_asgi_app)
+
 @app.get("/")
 async def root():
-    return {"message": f"Welcome to {settings.API_TITLE}"} 
+    return {"message": f"Welcome to {settings.API_TITLE}"}
