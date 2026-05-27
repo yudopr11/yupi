@@ -57,9 +57,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
       - name: Deploy to Railway
-        uses: railwayapp/railway-action@v2
-        with:
-          service: yupi
+        run: railway up --service yupi --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
