@@ -1,36 +1,26 @@
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List, Union
 
 class ErrorDetail(BaseModel):
     """
     Base model for error details
     """
-    detail: Union[str, List[Dict[str, Any]]] = Field(
-        ..., 
-        description="Error message or validation details"
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"detail": "Not authenticated"}]}
     )
 
-    class Config:
-        json_schema_extra = {
-            "examples": [
-                {"detail": "Not authenticated"}
-            ]
-        }
+    detail: Union[str, List[Dict[str, Any]]] = Field(
+        ...,
+        description="Error message or validation details"
+    )
 
 class ErrorResponse(BaseModel):
     """
     Standard error response with optional headers
     """
-    status_code: int = Field(..., description="HTTP status code")
-    detail: Union[str, List[Dict[str, Any]]] = Field(..., description="Error message or validation details")
-    headers: Optional[Dict[str, str]] = Field(None, description="Optional response headers")
-
-    def raise_exception(self):
-        raise HTTPException(**self.model_dump(exclude_none=True))
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "examples": [
                 {
                     "status_code": 401,
@@ -39,6 +29,14 @@ class ErrorResponse(BaseModel):
                 }
             ]
         }
+    )
+
+    status_code: int = Field(..., description="HTTP status code")
+    detail: Union[str, List[Dict[str, Any]]] = Field(..., description="Error message or validation details")
+    headers: Optional[Dict[str, str]] = Field(None, description="Optional response headers")
+
+    def raise_exception(self):
+        raise HTTPException(**self.model_dump(exclude_none=True))
 
 # Common error responses
 UNAUTHORIZED_ERROR = ErrorResponse(
