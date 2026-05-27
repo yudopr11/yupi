@@ -395,8 +395,8 @@ def create_mcp_asgi_app(inner_app=None):
             user_token = _current_user_var.set(user)
             db_token = _current_db_var.set(db)
             try:
-                # Rewrite to /mcp — same as yupi-mcp standalone does
-                new_scope = {**scope, "path": "/mcp", "raw_path": b"/mcp"}
+                # Rewrite to /mcp/ — FastMCP routes with trailing slash
+                new_scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
                 await inner_app(new_scope, receive, send)
             finally:
                 _current_user_var.reset(user_token)
