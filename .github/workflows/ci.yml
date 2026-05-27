@@ -28,7 +28,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/yupi_test
-      SECRET_KEY: test-secret-key-for-ci-only
+      SECRET_KEY: test-secret-key-for-ci-only-at-least-32-bytes
       OPENAI_API_KEY: sk-test-placeholder
 
     steps:

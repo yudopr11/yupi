@@ -162,10 +162,9 @@ async def test_mcp_invalid_credentials_returns_401():
     ):
         mock_session_factory.return_value = MagicMock()
         app = create_mcp_asgi_app(fake_inner)
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        token = make_token("bad", "creds")
-        resp = await client.post(f"/mcp/{token}")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            token = make_token("bad", "creds")
+            resp = await client.post(f"/mcp/{token}")
         assert resp.status_code == 401
         assert "invalid" in resp.json()["error"].lower()
 
