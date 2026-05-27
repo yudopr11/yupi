@@ -194,7 +194,7 @@ async def test_mcp_valid_token_passes_to_inner():
             await client.post(f"/mcp/{token}")
 
     assert len(inner_called) == 1
-    assert inner_called[0] == "/mcp/"
+    assert inner_called[0] == "/mcp"
 
 
 # ---------------------------------------------------------------------------
