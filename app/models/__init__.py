@@ -1,6 +1,7 @@
 from app.models.auth import User
 from app.models.blog import Post
 from app.models.cuan import TrxAccount, TrxCategory, Transaction
+from app.models.chat import Conversation, ChatMessage, ToolCall, UserSettings
 
 # Make all models available from the app.models namespace
 __all__ = [
@@ -8,5 +9,9 @@ __all__ = [
     'Post',
     'TrxAccount',
     'TrxCategory',
-    'Transaction'
+    'Transaction',
+    'Conversation',
+    'ChatMessage',
+    'ToolCall',
+    'UserSettings',
 ]

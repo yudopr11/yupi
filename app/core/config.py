@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # OpenAI API Key
     OPENAI_API_KEY: str = "sk-proj-1234567890"
     
+    # MiMo LLM settings (defaults, can be overridden per-user in DB)
+    MIMO_API_KEY: str = ""
+    MIMO_BASE_URL: str = "https://token-plan-sgp.xiaomimimo.com/anthropic"
+    MIMO_MODEL: str = "mimo-v2.5"
+
     # Email settings - Gmail
     MAIL_USERNAME: str = "your.email@gmail.com"  # Replace with your Gmail address
     MAIL_PASSWORD: str = "your-app-password"     # Replace with your App Password

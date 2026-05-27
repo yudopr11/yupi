@@ -73,6 +73,8 @@ dependencies = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "pyjwt[crypto]>=2.0.0",
+    "anthropic>=0.104.1",
+    "duckduckgo-search>=8.1.1",
 ]
 
 [dependency-groups]
