@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, UTC
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -112,7 +113,9 @@ async def chat(
     # Save user message
     content_blocks = None
     if body.images:
-        content_blocks = [{"type": "text", "text": body.message}]
+        content_blocks = []
+        if body.message:
+            content_blocks.append({"type": "text", "text": body.message})
         for img in body.images:
             content_blocks.append({
                 "type": "image",
@@ -172,6 +175,7 @@ async def chat(
                 )
                 db.add(assistant_msg)
                 db.flush()
+                now = datetime.now(UTC)
                 for tc in tool_calls_data:
                     tool_call = ToolCall(
                         message_id=assistant_msg.id,
@@ -179,6 +183,7 @@ async def chat(
                         arguments=tc["arguments"],
                         result=tc["result"],
                         status="completed" if tc["result"] else "error",
+                        completed_at=now,
                     )
                     db.add(tool_call)
                 db.commit()
