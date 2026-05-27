@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -34,8 +34,7 @@ class MessageResponse(BaseModel):
     tool_calls: list[ToolCallResponse] = []
     images: Optional[list[ImageBlock]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationResponse(BaseModel):
@@ -45,8 +44,7 @@ class ConversationResponse(BaseModel):
     updated_at: datetime
     last_message_preview: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationDetailResponse(ConversationResponse):

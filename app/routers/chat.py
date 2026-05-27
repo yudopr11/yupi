@@ -23,7 +23,7 @@ from app.schemas.chat import (
     McpEndpoint,
 )
 from app.utils.mimo_client import MiMoClient
-from app.utils.mcp_client import connect_mcp
+from app.utils.mcp_client import mcp_pool
 from app.utils.chat_orchestrator import run_chat
 from app.utils.crypto import encrypt_value, decrypt_value, mask_value, encrypt_endpoint, decrypt_endpoint
 
@@ -187,30 +187,11 @@ async def chat(
     async def event_stream():
         try:
             if mcp_endpoints:
-                # Connect to all MCP endpoints, collect sessions
-                exit_stack = []
-                tool_sessions = {}  # tool_name -> MCPSession
-                remote_tools = []   # all tool definitions
-                for ep in mcp_endpoints:
-                    try:
-                        ctx = connect_mcp(ep)
-                        session = await ctx.__aenter__()
-                        exit_stack.append(ctx)
-                        # List tools from this session and map them
-                        session_tools = await session.list_tools()
-                        for t in session_tools:
-                            tool_sessions[t["name"]] = session
-                            remote_tools.append(t)
-                    except Exception:
-                        pass  # skip failed connections
-
-                if tool_sessions:
-                    try:
-                        async for chunk in _stream_events(tool_sessions, remote_tools):
-                            yield chunk
-                    finally:
-                        for ctx in reversed(exit_stack):
-                            await ctx.__aexit__(None, None, None)
+                result = await mcp_pool.get_sessions(str(current_user.id), mcp_endpoints)
+                if result:
+                    tool_sessions, remote_tools = result
+                    async for chunk in _stream_events(tool_sessions, remote_tools):
+                        yield chunk
                 else:
                     async for chunk in _stream_events(None):
                         yield chunk
@@ -436,6 +417,10 @@ async def update_settings(
 
     db.commit()
     db.refresh(us)
+
+    # Invalidate MCP connection pool so new endpoints take effect
+    await mcp_pool.invalidate(str(current_user.id))
+
     api_key = _decrypt_safe(us.mimo_api_key) or app_settings.MIMO_API_KEY
     endpoints = []
     for ep in (us.mcp_endpoints or []):

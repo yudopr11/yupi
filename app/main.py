@@ -10,6 +10,7 @@ from app.mcp.server import create_mcp_asgi_app, mcp
 from app.middleware.cors import init_cors
 from app.routers import auth, blog, cuan, ngakak, chat
 from app.utils.database import get_db
+from app.utils.mcp_client import mcp_pool
 from app.utils.superuser import create_superuser
 
 # FastMCP Starlette app — has its own lifespan (session manager task group)
@@ -95,6 +96,7 @@ async def lifespan(app: FastAPI):
     db = next(get_db())
     create_superuser(db)
     yield
+    await mcp_pool.close_all()
 
 
 app.router.lifespan_context = lifespan
