@@ -1,13 +1,13 @@
 [build]
-builder = "nixpacks"
-buildCommand = "pip install -r requirements.txt"
+builder = "railpack"
+buildCommand = "uv sync"
 
 [deploy]
-startCommand = "alembic upgrade head && python scripts/update_embeddings.py && uvicorn app.main:app --host '' --port $PORT"
+startCommand = "uv run alembic upgrade head && uv run python scripts/update_embeddings.py && uv run uvicorn app.main:app --host '' --port $PORT"
 healthcheckPath = "/"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
 [variables]
-PYTHON_VERSION = "3.13" 
+PYTHON_VERSION = "3.13"
