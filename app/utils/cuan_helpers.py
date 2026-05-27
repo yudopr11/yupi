@@ -307,6 +307,7 @@ def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Opt
             "type": account.type,
             "description": account.description,
             "limit": account.limit,
+            "account_number": account.account_number,
             "user_id": account.user_id,
             "created_at": account.created_at,
             "updated_at": account.updated_at,
