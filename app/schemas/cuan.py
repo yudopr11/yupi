@@ -18,14 +18,12 @@ class TrxAccountBase(BaseModel):
     limit: Optional[Decimal] = Field(None, description="Credit limit for credit card accounts")
     account_number: Optional[str] = Field(None, description="Account number (required for bank_account and credit_card)")
 
+class TrxAccountCreate(TrxAccountBase):
     @model_validator(mode="after")
-    def require_account_number_for_non_other(self) -> "TrxAccountBase":
+    def require_account_number_for_non_other(self) -> "TrxAccountCreate":
         if self.type != TrxAccountType.OTHER and not self.account_number:
             raise ValueError("account_number is required for bank_account and credit_card types")
         return self
-
-class TrxAccountCreate(TrxAccountBase):
-    pass
 
 class TrxAccountResponseData(TrxAccountBase):
     id: uuid.UUID = Field(..., description="Unique identifier for the account")
