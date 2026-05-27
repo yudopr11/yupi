@@ -148,11 +148,11 @@ async def chat(
 
     conversation_id = str(conv.id)
 
-    async def _stream_events(tool_sessions, remote_tools=None):
+    async def _stream_events(conn_map=None, remote_tools=None):
         assistant_content = ""
         tool_calls_data = []
 
-        async for event in run_chat(history, mimo, current_user, db, tool_sessions, remote_tools):
+        async for event in run_chat(history, mimo, current_user, db, conn_map, remote_tools):
             if event["type"] == "text":
                 assistant_content += event["content"]
                 yield f"event: delta\ndata: {json.dumps({'content': event['content']})}\n\n"
@@ -194,8 +194,8 @@ async def chat(
             if mcp_endpoints:
                 result = await mcp_pool.get_sessions(str(current_user.id), mcp_endpoints)
                 if result:
-                    tool_sessions, remote_tools = result
-                    async for chunk in _stream_events(tool_sessions, remote_tools):
+                    conn_map, remote_tools = result
+                    async for chunk in _stream_events(conn_map, remote_tools):
                         yield chunk
                 else:
                     async for chunk in _stream_events(None):

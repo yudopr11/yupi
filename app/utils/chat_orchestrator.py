@@ -1,13 +1,13 @@
 """Chat orchestrator: MiMo streaming + MCP tool execution (local or remote)."""
 import json
 import inspect
+from datetime import datetime, UTC
 from typing import AsyncGenerator
 
 from app.mcp.context import _current_db_var, _current_user_var
 from app.mcp.server import mcp as mcp_server
 from app.models.auth import User
 from app.utils.mimo_client import MiMoClient
-from app.utils.mcp_client import MCPSession
 from sqlalchemy.orm import Session
 
 
@@ -22,6 +22,12 @@ You can help with:
 
 Be concise and helpful. When using tools, explain what you found in natural language.
 If a tool call fails, explain the error and suggest alternatives."""
+
+
+def _get_system_prompt() -> str:
+    """Return system prompt with current date injected."""
+    today = datetime.now(UTC).strftime("%A, %Y-%m-%d")
+    return f"Current date: {today}\n\n{SYSTEM_PROMPT}"
 
 
 def _build_local_tool_definitions() -> list[dict]:
@@ -93,14 +99,14 @@ async def run_chat(
     mimo: MiMoClient,
     user: User,
     db: Session,
-    tool_sessions: dict[str, MCPSession] | None = None,
+    conn_map: dict | None = None,
     remote_tools: list[dict] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Run the chat orchestrator. Yields SSE-style events.
 
-    If tool_sessions is provided (tool_name -> MCPSession mapping),
-    uses remote MCP servers for tools. Otherwise falls back to local
-    in-process MCP tools.
+    If conn_map is provided (tool_name -> _PooledConnection mapping),
+    uses remote MCP servers for tools with auto-reconnect. Otherwise
+    falls back to local in-process MCP tools.
 
     Events:
         {"type": "text", "content": "..."}
@@ -109,7 +115,7 @@ async def run_chat(
         {"type": "error", "detail": "..."}
         {"type": "done"}
     """
-    use_remote = tool_sessions is not None
+    use_remote = conn_map is not None
 
     if use_remote:
         tools = remote_tools or []
@@ -128,7 +134,7 @@ async def run_chat(
                 messages=conversation_messages,
                 max_tokens=4096,
                 tools=tools,
-                system=SYSTEM_PROMPT,
+                system=_get_system_prompt(),
             ) as stream:
                 async for event in stream:
                     if event.type == "content_block_start":
@@ -183,9 +189,9 @@ async def run_chat(
             yield {"type": "tool_start", "id": tu["id"], "name": tu["name"], "arguments": tu["input"]}
 
             if use_remote:
-                session = tool_sessions.get(tu["name"])
-                if session:
-                    result_str = await session.call_tool(tu["name"], tu["input"])
+                conn = conn_map.get(tu["name"])
+                if conn:
+                    result_str = await conn.call_tool_with_retry(tu["name"], tu["input"])
                 else:
                     result_str = json.dumps({"error": f"No session for tool: {tu['name']}"})
             else:

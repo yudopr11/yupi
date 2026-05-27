@@ -45,7 +45,7 @@ class MCPSession:
 
 
 class _PooledConnection:
-    """Holds a single MCP connection with its exit stack."""
+    """Holds a single MCP connection with auto-reconnect."""
 
     def __init__(self, endpoint: str):
         self.endpoint = endpoint
@@ -55,34 +55,34 @@ class _PooledConnection:
         self._stack: AsyncExitStack | None = None
         self._lock = asyncio.Lock()
 
-    async def ensure_connected(self) -> bool:
-        """Connect if not already connected. Returns True if successful."""
-        if self.session is not None:
+    async def _connect(self) -> bool:
+        """Create new connection. Must hold _lock."""
+        try:
+            stack = AsyncExitStack()
+            read_stream, write_stream, _ = await stack.enter_async_context(
+                streamablehttp_client(self.endpoint)
+            )
+            client = await stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            )
+            await client.initialize()
+            self._stack = stack
+            self.session = MCPSession(client)
+            self.tools = await self.session.list_tools()
+            self.tool_sessions = {t["name"]: self.session for t in self.tools}
             return True
-        async with self._lock:
-            # Double-check after acquiring lock
-            if self.session is not None:
-                return True
-            try:
-                stack = AsyncExitStack()
-                read_stream, write_stream, _ = await stack.enter_async_context(
-                    streamablehttp_client(self.endpoint)
-                )
-                client = await stack.enter_async_context(
-                    ClientSession(read_stream, write_stream)
-                )
-                await client.initialize()
-                self._stack = stack
-                self.session = MCPSession(client)
-                self.tools = await self.session.list_tools()
-                self.tool_sessions = {t["name"]: self.session for t in self.tools}
-                return True
-            except Exception as e:
-                logger.warning("MCP connect failed for %s: %s", self.endpoint, e)
-                return False
+        except Exception as e:
+            logger.warning("MCP connect failed for %s: %s", self.endpoint, e)
+            self.session = None
+            return False
 
-    async def close(self):
-        """Close the connection."""
+    async def _reconnect(self) -> bool:
+        """Close existing connection and create new one. Must hold _lock."""
+        await self._close_internal()
+        return await self._connect()
+
+    async def _close_internal(self):
+        """Close without acquiring lock."""
         if self._stack:
             try:
                 await self._stack.aclose()
@@ -92,6 +92,35 @@ class _PooledConnection:
         self.session = None
         self.tools = []
         self.tool_sessions = {}
+
+    async def ensure_connected(self) -> bool:
+        """Connect if not already connected. Returns True if successful."""
+        if self.session is not None:
+            return True
+        async with self._lock:
+            if self.session is not None:
+                return True
+            return await self._connect()
+
+    async def call_tool_with_retry(self, name: str, arguments: dict[str, Any]) -> str:
+        """Call tool with automatic reconnect on failure."""
+        for attempt in range(2):
+            if not await self.ensure_connected():
+                raise RuntimeError(f"MCP connection failed for {self.endpoint}")
+            try:
+                return await self.session.call_tool(name, arguments)
+            except Exception as e:
+                if attempt == 0:
+                    logger.info("MCP tool call failed, reconnecting: %s", e)
+                    async with self._lock:
+                        await self._reconnect()
+                else:
+                    raise
+
+    async def close(self):
+        """Close the connection."""
+        async with self._lock:
+            await self._close_internal()
 
 
 class MCPPool:
@@ -104,10 +133,11 @@ class MCPPool:
 
     async def get_sessions(
         self, user_id: str, endpoints: list[str]
-    ) -> tuple[dict[str, MCPSession], list[dict]] | None:
+    ) -> tuple[dict[str, _PooledConnection], list[dict]] | None:
         """Get or create MCP sessions for a user's endpoints.
 
-        Returns (tool_sessions, remote_tools) or None if no connections succeeded.
+        Returns (conn_map, remote_tools) or None if no connections succeeded.
+        conn_map maps tool_name -> _PooledConnection (for retry on call).
         """
         if not endpoints:
             return None
@@ -118,7 +148,7 @@ class MCPPool:
             # Remove endpoints no longer in user's config
             to_remove = [ep for ep in user_conns if ep not in endpoints]
             for ep in to_remove:
-                await user_conns.pop(ep).close()
+                await user_conns.pop(ep)._close_internal()
 
         # Connect to any new endpoints (outside global lock)
         for ep in endpoints:
@@ -130,19 +160,20 @@ class MCPPool:
                     self._pool[user_id][ep] = conn
             await conn.ensure_connected()
 
-        # Collect all tools and sessions
-        tool_sessions: dict[str, MCPSession] = {}
+        # Collect all tools and connections
+        conn_map: dict[str, _PooledConnection] = {}
         remote_tools: list[dict] = []
         async with self._lock:
             for ep in endpoints:
                 conn = self._pool[user_id].get(ep)
                 if conn and conn.session:
-                    tool_sessions.update(conn.tool_sessions)
+                    for tool_name in conn.tool_sessions:
+                        conn_map[tool_name] = conn
                     remote_tools.extend(conn.tools)
 
-        if not tool_sessions:
+        if not conn_map:
             return None
-        return tool_sessions, remote_tools
+        return conn_map, remote_tools
 
     async def invalidate(self, user_id: str):
         """Close and remove all connections for a user."""
