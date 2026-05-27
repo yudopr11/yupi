@@ -39,6 +39,7 @@ class TrxAccount(Base):
     type = Column(EnumAsString(TrxAccountType), nullable=False)
     description = Column(Text)
     limit = Column(DECIMAL(10, 2))
+    account_number = Column(String, nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

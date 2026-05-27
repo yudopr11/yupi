@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Optional, List, TypeVar, Generic
 from datetime import datetime
 from decimal import Decimal
@@ -12,28 +12,28 @@ T = TypeVar('T')
 
 # --- Account Schemas ---
 class TrxAccountBase(BaseModel):
-    """
-    Base schema for transaction account with common fields
-    """
-    name: str = Field(..., description="Name of the account", example="My Bank Account")
+    name: str = Field(..., description="Name of the account")
     type: TrxAccountType = Field(..., description="Type of the account (bank_account, credit_card, other)")
-    description: Optional[str] = Field(None, description="Optional description of the account", example="Main checking account")
-    limit: Optional[Decimal] = Field(None, description="Credit limit for credit card accounts", example="5000.00")
+    description: Optional[str] = Field(None, description="Optional description of the account")
+    limit: Optional[Decimal] = Field(None, description="Credit limit for credit card accounts")
+    account_number: Optional[str] = Field(None, description="Account number (required for bank_account and credit_card)")
+
+    @model_validator(mode="after")
+    def require_account_number_for_non_other(self) -> "TrxAccountBase":
+        if self.type != TrxAccountType.OTHER and not self.account_number:
+            raise ValueError("account_number is required for bank_account and credit_card types")
+        return self
 
 class TrxAccountCreate(TrxAccountBase):
-    """
-    Schema for creating a new transaction account
-    """
     pass
 
 class TrxAccountResponseData(TrxAccountBase):
-    id: uuid.UUID = Field(..., description="Unique identifier for the account", example=uuid.uuid4())
-    user_id: uuid.UUID = Field(..., description="ID of the user who owns this account", example=uuid.uuid4())
+    id: uuid.UUID = Field(..., description="Unique identifier for the account")
+    user_id: uuid.UUID = Field(..., description="ID of the user who owns this account")
     created_at: datetime = Field(..., description="Timestamp when the account was created")
     updated_at: datetime = Field(..., description="Timestamp when the account was last updated")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TrxAccountResponse(BaseModel):
     data: TrxAccountResponseData
@@ -49,11 +49,8 @@ class TrxAccountWithBalance(TrxAccountResponseData):
     payable_balance: Optional[Decimal] = Field(None, description="Payable balance for credit card accounts")
 
 class TrxDeletedAccountInfo(DeletedItemInfo):
-    """
-    Schema for deleted account information
-    """
-    name: str = Field(..., description="Name of the deleted account", example="My Bank Account")
-    type: str = Field(..., description="Type of the deleted account", example="bank_account")
+    name: str = Field(..., description="Name of the deleted account")
+    type: str = Field(..., description="Type of the deleted account")
 
 class TrxDeleteAccountResponse(DeleteResponse[TrxDeletedAccountInfo]):
     """
@@ -66,7 +63,7 @@ class TrxCategoryBase(BaseModel):
     """
     Base schema for transaction category with common fields
     """
-    name: str = Field(..., description="Name of the category", example="Salary")
+    name: str = Field(..., description="Name of the category")
     type: TrxCategoryType = Field(..., description="Type of the category (income, expense, or transfer)")
 
 class TrxCategoryCreate(TrxCategoryBase):
@@ -79,24 +76,20 @@ class TrxCategoryCreate(TrxCategoryBase):
     pass
 
 class TrxCategoryResponseData(TrxCategoryBase):
-    id: uuid.UUID = Field(..., description="Unique identifier for the category", example=uuid.uuid4())
-    user_id: uuid.UUID = Field(..., description="ID of the user who owns this category", example=uuid.uuid4())
+    id: uuid.UUID = Field(..., description="Unique identifier for the category")
+    user_id: uuid.UUID = Field(..., description="ID of the user who owns this category")
     created_at: datetime = Field(..., description="Timestamp when the category was created")
     updated_at: datetime = Field(..., description="Timestamp when the category was last updated")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TrxCategoryResponse(BaseModel):
     data: TrxCategoryResponseData
     message: str
 
 class TrxDeletedCategoryInfo(DeletedItemInfo):
-    """
-    Schema for deleted category information
-    """
-    name: str = Field(..., description="Name of the deleted category", example="Salary")
-    type: str = Field(..., description="Type of the deleted category", example="income")
+    name: str = Field(..., description="Name of the deleted category")
+    type: str = Field(..., description="Type of the deleted category")
 
 class TrxDeleteCategoryResponse(DeleteResponse[TrxDeletedCategoryInfo]):
     """
@@ -110,8 +103,8 @@ class TransactionBase(BaseModel):
     Base schema for transaction with common fields
     """
     transaction_date: datetime = Field(..., description="Date and time when the transaction occurred")
-    description: str = Field(..., description="Description or note about the transaction", example="Grocery shopping at Walmart")
-    amount: Decimal = Field(..., description="Transaction amount", example="50.25")
+    description: str = Field(..., description="Description or note about the transaction")
+    amount: Decimal = Field(..., description="Transaction amount")
     transaction_type: TransactionType = Field(..., description="Type of transaction (income, expense, or transfer)")
     account_id: uuid.UUID = Field(..., description="ID of the account where the transaction occurred")
     category_id: Optional[uuid.UUID] = Field(None, description="ID of the category for the transaction (optional)")
@@ -133,8 +126,7 @@ class TransactionResponseData(TransactionBase):
     created_at: datetime = Field(..., description="Timestamp when the transaction was created")
     updated_at: datetime = Field(..., description="Timestamp when the transaction was last updated")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TransactionResponse(BaseModel):
     """

@@ -93,6 +93,7 @@ def _serialize_account(a) -> dict:
         "type": a.type.value if hasattr(a.type, "value") else a.type,
         "description": a.description,
         "limit": float(a.limit) if a.limit is not None else None,
+        "account_number": a.account_number,
     }
 
 
@@ -363,12 +364,13 @@ async def create_account_impl(
     type: str,
     description: Optional[str] = None,
     limit: Optional[float] = None,
+    account_number: Optional[str] = None,
 ) -> dict:
     user = _user()
     if user.username == "guest":
         raise PermissionError("Guest users cannot create accounts")
     db = _db()
-    data = {"name": name, "type": type, "description": description, "limit": limit}
+    data = {"name": name, "type": type, "description": description, "limit": limit, "account_number": account_number}
     account = prepare_account_for_db(data, user.id)
     db.add(account)
     db.commit()
@@ -407,6 +409,7 @@ async def update_account_impl(
     type: str,
     description: Optional[str] = None,
     limit: Optional[float] = None,
+    account_number: Optional[str] = None,
 ) -> dict:
     user = _user()
     if user.username == "guest":
@@ -421,6 +424,7 @@ async def update_account_impl(
     account.type = type
     account.description = description
     account.limit = limit
+    account.account_number = account_number
     db.commit()
     db.refresh(account)
     return _serialize_account(account)

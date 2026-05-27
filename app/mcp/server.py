@@ -147,9 +147,10 @@ async def create_account(
     type: str,
     description: Optional[str] = None,
     limit: Optional[float] = None,
+    account_number: Optional[str] = None,
 ) -> dict:
-    """Create a financial account. type: bank_account|credit_card|other."""
-    return await create_account_impl(name, type, description, limit)
+    """Create a financial account. type: bank_account|credit_card|other. account_number required for bank_account/credit_card."""
+    return await create_account_impl(name, type, description, limit, account_number)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
@@ -159,9 +160,10 @@ async def update_account(
     type: str,
     description: Optional[str] = None,
     limit: Optional[float] = None,
+    account_number: Optional[str] = None,
 ) -> dict:
-    """Update a financial account by UUID."""
-    return await update_account_impl(account_id, name, type, description, limit)
+    """Update a financial account by UUID. account_number required for bank_account/credit_card."""
+    return await update_account_impl(account_id, name, type, description, limit, account_number)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
