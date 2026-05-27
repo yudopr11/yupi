@@ -32,6 +32,13 @@ A FastAPI-based API service providing blog management, bill splitting analysis, 
   - Multi-currency detection
   - Rate limiting for guest users (3 requests/day per IP)
 
+- **AI Chat (YuChat)**
+  - SSE streaming chat via MiMo LLM (Anthropic format)
+  - Multi-MCP endpoint support — tools merged from all configured endpoints
+  - Image attachments stored as base64 in Anthropic multimodal format
+  - Per-user settings with Fernet encryption for API keys and MCP endpoints
+  - Conversation history with tool call tracking
+
 - **MCP Server**
   - All features exposed as MCP tools at `/mcp/{base64(username:password)}`
   - Compatible with Claude Desktop and MCP Inspector
@@ -182,6 +189,18 @@ Filters for `GET /cuan/transactions`: `account_name`, `category_name`, `transact
 | POST | `/ngakak/analyze` | Yes | Analyze bill image and split costs |
 
 Form fields: `image` (JPG/PNG/WebP ≤ 5 MB), `description` (who ordered what), `image_description` (optional, skips vision step).
+
+### Chat (`/chat`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/chat` | Yes | Send message + stream SSE response (supports image attachments) |
+| GET | `/chat/conversations` | Yes | List user conversations |
+| GET | `/chat/conversations/{id}` | Yes | Get conversation with messages |
+| DELETE | `/chat/conversations/{id}` | Yes | Delete conversation |
+| PATCH | `/chat/conversations/{id}` | Yes | Update conversation title |
+| GET | `/chat/settings` | Yes | Get user MiMo config (keys masked) |
+| PUT | `/chat/settings` | Yes | Update MiMo config + MCP endpoints (encrypted) |
 
 ### MCP Server
 
