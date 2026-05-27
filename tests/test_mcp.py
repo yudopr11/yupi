@@ -122,14 +122,14 @@ def mcp_asgi():
     ):
         mock_db = MagicMock()
         mock_session_factory.return_value = mock_db
-        app = create_mcp_asgi_app(fake_inner)
-        yield app
+        asgi_app = create_mcp_asgi_app(fake_inner)
+        yield asgi_app
 
 
 @pytest.mark.asyncio
 async def test_mcp_no_token_returns_401(mcp_asgi):
     async with AsyncClient(transport=ASGITransport(app=mcp_asgi), base_url="http://test") as client:
-        resp = await client.post("/")
+        resp = await client.post("/mcp")
         assert resp.status_code == 401
         assert "token" in resp.json()["error"].lower()
 
@@ -137,7 +137,7 @@ async def test_mcp_no_token_returns_401(mcp_asgi):
 @pytest.mark.asyncio
 async def test_mcp_invalid_base64_returns_401(mcp_asgi):
     async with AsyncClient(transport=ASGITransport(app=mcp_asgi), base_url="http://test") as client:
-        resp = await client.post("/not-base64!!!")
+        resp = await client.post("/mcp/not-base64!!!")
         assert resp.status_code == 401
 
 
@@ -145,7 +145,7 @@ async def test_mcp_invalid_base64_returns_401(mcp_asgi):
 async def test_mcp_no_colon_token_returns_401(mcp_asgi):
     async with AsyncClient(transport=ASGITransport(app=mcp_asgi), base_url="http://test") as client:
         token = base64.b64encode(b"nocolon").decode()
-        resp = await client.post(f"/{token}")
+        resp = await client.post(f"/mcp/{token}")
         assert resp.status_code == 401
 
 
@@ -165,7 +165,7 @@ async def test_mcp_invalid_credentials_returns_401():
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         token = make_token("bad", "creds")
-        resp = await client.post(f"/{token}")
+        resp = await client.post(f"/mcp/{token}")
         assert resp.status_code == 401
         assert "invalid" in resp.json()["error"].lower()
 
@@ -192,7 +192,7 @@ async def test_mcp_valid_token_passes_to_inner():
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             token = make_token("admin", "pass")
-            await client.post(f"/{token}")
+            await client.post(f"/mcp/{token}")
 
     assert len(inner_called) == 1
     assert inner_called[0] == "/mcp"

@@ -358,11 +358,9 @@ async def _send_json_error(send, status: int, error: str) -> None:
 
 def create_mcp_asgi_app(inner_app=None):
     """
-    Returns an ASGI app that:
-    1. Expects path /{base64token} (after FastAPI strips the /mcp prefix)
-    2. Validates credentials against the DB
-    3. Sets context vars (current_user, db)
-    4. Rewrites path to /mcp and forwards to FastMCP
+    Returns an ASGI app that handles /mcp/{base64token} paths directly.
+    Receives the full unmodified path (via MCPMiddleware, not app.mount),
+    so no prefix stripping or root_path mutation occurs.
     """
     if inner_app is None:
         inner_app = mcp.streamable_http_app()
@@ -374,12 +372,12 @@ def create_mcp_asgi_app(inner_app=None):
 
         path = scope.get("path", "")
 
-        # path is "/{token}" after FastAPI strips the /mcp mount prefix
-        if not path or path == "/":
+        # Expect /mcp/{token} — extract token segment
+        if not path.startswith("/mcp/"):
             await _send_json_error(send, 401, "Token required — use /mcp/<base64(username:password)>")
             return
 
-        token = path.lstrip("/").split("/")[0]
+        token = path[5:].split("/")[0]  # strip "/mcp/" then take first segment
         creds = decode_mcp_token(token)
         if not creds:
             await _send_json_error(send, 401, "Invalid token format")
@@ -397,6 +395,7 @@ def create_mcp_asgi_app(inner_app=None):
             user_token = _current_user_var.set(user)
             db_token = _current_db_var.set(db)
             try:
+                # Rewrite to /mcp — same as yupi-mcp standalone does
                 new_scope = {**scope, "path": "/mcp", "raw_path": b"/mcp"}
                 await inner_app(new_scope, receive, send)
             finally:
