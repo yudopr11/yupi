@@ -21,7 +21,9 @@ You can help with:
 - And more!
 
 Be concise and helpful. When using tools, explain what you found in natural language.
-If a tool call fails, explain the error and suggest alternatives."""
+If a tool call fails, explain the error and suggest alternatives.
+
+When any tool parameter expects a datetime/timestamp, always include time (ISO 8601 format, e.g. 2026-05-28T14:30:00+00:00). If the user only provides a date, ask what time. If the user says "now", use current time. Default timezone is UTC unless specified otherwise."""
 
 
 def _get_system_prompt() -> str:

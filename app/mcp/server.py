@@ -229,7 +229,7 @@ async def create_transaction(
     destination_account_id: Optional[str] = None,
     transfer_fee: Optional[float] = None,
 ) -> dict:
-    """Create a transaction. transaction_type: income|expense|transfer."""
+    """Create a transaction. transaction_type: income|expense|transfer. transaction_date must be ISO 8601 with time (e.g. 2026-05-28T14:30:00+00:00)."""
     return await create_transaction_impl(
         transaction_date, description, amount, transaction_type,
         account_id, category_id, destination_account_id, transfer_fee,
@@ -248,7 +248,7 @@ async def update_transaction(
     destination_account_id: Optional[str] = None,
     transfer_fee: Optional[float] = None,
 ) -> dict:
-    """Update a transaction by UUID."""
+    """Update a transaction by UUID. transaction_date must be ISO 8601 with time (e.g. 2026-05-28T14:30:00+00:00)."""
     return await update_transaction_impl(
         transaction_id, transaction_date, description, amount,
         transaction_type, account_id, category_id, destination_account_id, transfer_fee,
