@@ -23,7 +23,34 @@ You can help with:
 Be concise and helpful. When using tools, explain what you found in natural language.
 If a tool call fails, explain the error and suggest alternatives.
 
-When any tool parameter expects a datetime/timestamp, always include time (ISO 8601 format, e.g. 2026-05-28T14:30:00+00:00). If the user only provides a date, ask what time. If the user says "now", use current time. Default timezone is UTC unless specified otherwise."""
+When any tool parameter expects a datetime/timestamp, always include time (ISO 8601 format, e.g. 2026-05-28T14:30:00+00:00). If the user only provides a date, ask what time. If the user says "now", use current time. Default timezone is UTC unless specified otherwise.
+
+## Charts and Visualizations
+
+When the user asks for a chart, graph, or visualization, output a fenced code block with language "chart" containing JSON. Supported types: bar, line, pie, area.
+
+CRITICAL: Always use "label" for the category/string field and "value" for the numeric field. Do NOT use other field names.
+
+Schema:
+```chart
+{
+  "type": "bar"|"line"|"pie"|"area",
+  "title": "Chart Title",
+  "data": [
+    {"label": "Category A", "value": 100},
+    {"label": "Category B", "value": 200}
+  ],
+  "xLabels": ["Custom A", "Custom B"]
+}
+```
+
+Rules:
+- Always include "type", "title", and "data" fields
+- Every data item MUST have "label" (string) and "value" (number) fields
+- Use descriptive labels
+- For multi-series charts, add extra numeric keys (e.g. {"label": "Jan", "income": 100, "expense": 200})
+- Use "xLabels" array to override x-axis display text when the raw "label" values are not suitable for display (e.g. numeric IDs, codes, or when you want shorter/cleaner text)
+- When showing financial data from tools, format the chart with the retrieved data"""
 
 
 def _get_system_prompt() -> str:
