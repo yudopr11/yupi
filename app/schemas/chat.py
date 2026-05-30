@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -11,7 +11,7 @@ class ImageBlock(BaseModel):
 
 class ChatRequest(BaseModel):
     conversation_id: Optional[UUID] = None
-    message: str
+    message: str = Field(..., min_length=1, max_length=10000)
     images: Optional[list[ImageBlock]] = None
 
 
@@ -52,7 +52,7 @@ class ConversationDetailResponse(ConversationResponse):
 
 
 class ConversationUpdate(BaseModel):
-    title: str
+    title: str = Field(..., min_length=1, max_length=200)
 
 
 class McpEndpoint(BaseModel):

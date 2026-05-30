@@ -402,23 +402,27 @@ def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: 
             print(f"Found {total} posts without embeddings")
         
     processed = 0
-    
+    last_id = None
+
     while processed < total:
-        # Get a batch of posts
-        posts = query.offset(processed).limit(batch_size).all()
-        
+        # Get a batch of posts using cursor-based pagination
+        q = query
+        if last_id is not None:
+            q = q.filter(Post.id > last_id)
+        posts = q.order_by(Post.id).limit(batch_size).all()
+
         if not posts:
             break
-            
+
         # Generate and update embeddings
         for post in posts:
             embedding = generate_post_embedding(
-                title=post.title, 
+                title=post.title,
                 excerpt=post.excerpt
             )
             post.embedding = embedding
-        
-        # Commit the batch
+
+        last_id = posts[-1].id
         db.commit()
         processed += len(posts)
         print(f"Processed {processed}/{total} posts")
@@ -459,15 +463,14 @@ def search_posts_by_embedding(
     # Generate embedding for the search query
     query_embedding = generate_embedding(query)
     
-    # Create SQL query using the cosine_similarity function
-    published_filter = "AND blog_posts.published = TRUE" if published_only else ""
-    
     # Default threshold to 0 if not provided
     similarity_threshold = similarity_threshold if similarity_threshold is not None else 0
-    
+
+    published_filter = "AND blog_posts.published = TRUE" if published_only else ""
+
     sql = text(f"""
-    SELECT 
-    blog_posts.id as post_id, 
+    SELECT
+    blog_posts.id as post_id,
     blog_posts.title,
     blog_posts.slug,
     blog_posts.excerpt,
@@ -481,15 +484,15 @@ def search_posts_by_embedding(
     auth_users.username as author_username,
     auth_users.email as author_email,
     1 - (blog_posts.embedding <=> CAST(:query_embedding AS vector)) as similarity
-    FROM 
+    FROM
         blog_posts
     JOIN
         auth_users ON blog_posts.user_id = auth_users.id
-    WHERE 
+    WHERE
         blog_posts.embedding IS NOT NULL
         AND 1 - (blog_posts.embedding <=> CAST(:query_embedding AS vector)) >= :similarity_threshold
-        AND blog_posts.published = TRUE
-    ORDER BY 
+        {published_filter}
+    ORDER BY
         blog_posts.embedding <=> CAST(:query_embedding AS vector)
     LIMIT :limit
     """)

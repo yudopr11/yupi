@@ -9,9 +9,9 @@ from decimal import Decimal
 from app.utils.database import get_db
 from app.utils.auth import get_current_user, get_non_guest_user
 from app.utils.cuan_helpers import (
-    validate_account, 
-    validate_category, 
-    validate_transaction_category_match, 
+    validate_account,
+    validate_category,
+    validate_transaction_category_match,
     validate_transfer,
     prepare_account_for_db,
     prepare_category_for_db,
@@ -24,15 +24,16 @@ from app.utils.cuan_helpers import (
     get_filtered_transactions,
     calculate_date_range,
     get_year_end,
-    get_accounts_with_balance
+    get_accounts_with_balance,
+    create_credit_card_initial_transaction,
 )
-from app.models.cuan import Transaction, TransactionType, TrxAccount as AccountModel, TrxAccountType, TrxCategory as CategoryModel, TrxCategoryType
+from app.models.cuan import Transaction, TransactionType, TrxAccountType, TrxCategory as CategoryModel
 from app.models.auth import User
 from app.schemas.cuan import (
     TrxAccountCreate, TrxAccountResponse, TrxAccountWithBalance, TrxDeleteAccountResponse,
     TrxCategoryCreate, TrxCategoryResponse, TrxDeleteCategoryResponse,
     TransactionCreate, TransactionResponse, AccountBalanceResponse, DeleteTransactionResponse, TransactionList,
-    TrxCategoryResponseData, TransactionResponseData, AccountBalance
+    TrxCategoryResponseData
 )
 from app.schemas.cuan import (
     FinancialSummaryResponse, 
@@ -60,29 +61,7 @@ def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), cur
     db.refresh(new_account)
 
     if new_account.type == TrxAccountType.CREDIT_CARD and new_account.limit is not None:
-        other_category = db.query(CategoryModel).filter(
-            CategoryModel.name == "Other",
-            CategoryModel.type == TrxCategoryType.INCOME,
-            CategoryModel.user_id == current_user.id
-        ).first()
-        if not other_category:
-            other_category = CategoryModel(id=uuid.uuid4(), name="Other", type=TrxCategoryType.INCOME, user_id=current_user.id)
-            db.add(other_category)
-            db.commit()
-            db.refresh(other_category)
-        
-        initial_tx = Transaction(
-            id=uuid.uuid4(),
-            transaction_date=datetime.now(UTC),
-            description="Initial credit card balance",
-            amount=new_account.limit,
-            transaction_type=TransactionType.INCOME,
-            account_id=new_account.id,
-            category_id=other_category.id,
-            user_id=current_user.id
-        )
-        db.add(initial_tx)
-        db.commit()
+        create_credit_card_initial_transaction(db, new_account, current_user.id)
 
     return {"data": new_account, "message": "Account created successfully"}
 
@@ -225,7 +204,7 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
     validate_transaction_category_match(transaction.transaction_type, category)
 
     if transaction.transaction_type == TransactionType.EXPENSE and account.type == TrxAccountType.CREDIT_CARD:
-        balance_details = calculate_account_balance(db, account.id)
+        balance_details = calculate_account_balance(db, account.id, current_user.id)
         if balance_details["balance"] <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -262,7 +241,7 @@ def update_transaction(id: uuid.UUID, transaction_update: TransactionCreate, db:
         account.type == TrxAccountType.CREDIT_CARD and
         (existing_transaction.transaction_type != TransactionType.EXPENSE or transaction_update.amount > existing_transaction.amount)
     ):
-        balance_details = calculate_account_balance(db, account.id)
+        balance_details = calculate_account_balance(db, account.id, current_user.id)
         adjusted_balance = balance_details["balance"]
         if existing_transaction.transaction_type == TransactionType.EXPENSE and existing_transaction.account_id == transaction_update.account_id:
             adjusted_balance += existing_transaction.amount
@@ -310,27 +289,21 @@ def get_transactions(
     """
     Get a paginated list of transactions with advanced filtering.
     """
-    try:
-        query = get_filtered_transactions(
-            db=db, user_id=current_user.id, account_name=account_name, category_name=category_name,
-            transaction_type=transaction_type, start_date=start_date, end_date=end_date,
-            date_filter_type=date_filter_type, timezone=timezone, order_by=order_by, sort_order=sort_order, return_query=True
-        )
-        total_count = query.count()
-        transactions = query.offset(skip).limit(limit + 1).all()
-        has_more = len(transactions) > limit
-        if has_more:
-            transactions = transactions[:limit]
+    query = get_filtered_transactions(
+        db=db, user_id=current_user.id, account_name=account_name, category_name=category_name,
+        transaction_type=transaction_type, start_date=start_date, end_date=end_date,
+        date_filter_type=date_filter_type, timezone=timezone, order_by=order_by, sort_order=sort_order, return_query=True
+    )
+    total_count = query.count()
+    transactions = query.offset(skip).limit(limit + 1).all()
+    has_more = len(transactions) > limit
+    if has_more:
+        transactions = transactions[:limit]
 
-        return {
-            "data": transactions, "total_count": total_count, "has_more": has_more,
-            "limit": limit, "skip": skip, "message": "Transactions retrieved successfully"
-        }
-    except HTTPException as e:
-        return {
-            "data": [], "total_count": 0, "has_more": False, "limit": limit, "skip": skip,
-            "message": e.detail
-        }
+    return {
+        "data": transactions, "total_count": total_count, "has_more": has_more,
+        "limit": limit, "skip": skip, "message": "Transactions retrieved successfully"
+    }
 
 # --- Statistics Endpoints ---
 
@@ -489,15 +462,31 @@ def get_account_summary(db: Session = Depends(get_db), current_user: User = Depe
         "other": sum(acc['balance'] for acc in accounts_data if acc['type'] == TrxAccountType.OTHER)
     }
 
-    # Sort accounts by latest transaction for better UX (most recently used first)
-    # This part still has a potential N+1 query, but it's for sorting display and less critical.
-    # A more advanced solution might involve a more complex join or a separate denormalized field.
+    # Bulk fetch latest transaction date per account (no N+1)
+    account_ids = [acc_data['id'] for acc_data in accounts_data]
+    latest_dates_src = dict(
+        db.query(Transaction.account_id, func.max(Transaction.transaction_date))
+        .filter(Transaction.account_id.in_(account_ids))
+        .group_by(Transaction.account_id)
+        .all()
+    )
+    latest_dates_dst = dict(
+        db.query(Transaction.destination_account_id, func.max(Transaction.transaction_date))
+        .filter(Transaction.destination_account_id.in_(account_ids))
+        .group_by(Transaction.destination_account_id)
+        .all()
+    )
+    # Merge: take the max of source and destination dates
+    latest_dates = {}
+    for aid in account_ids:
+        src = latest_dates_src.get(aid)
+        dst = latest_dates_dst.get(aid)
+        latest_dates[aid] = max(filter(None, [src, dst]), default=None)
+
     account_summaries = []
     for acc_data in accounts_data:
-        latest_tx_date = db.query(func.max(Transaction.transaction_date)).filter(
-            or_(Transaction.account_id == acc_data['id'], Transaction.destination_account_id == acc_data['id'])
-        ).scalar() or acc_data['created_at']
-        
+        latest_tx_date = latest_dates.get(acc_data['id']) or acc_data['created_at']
+
         summary_item = {
             **acc_data,
             "utilization_percentage": ((acc_data['payable_balance'] / acc_data['limit']) * 100) if acc_data.get('limit') and acc_data.get('payable_balance') is not None else None

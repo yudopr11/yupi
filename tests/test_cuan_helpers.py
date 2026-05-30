@@ -1,8 +1,8 @@
 """Tests for app/utils/cuan_helpers.py."""
 from datetime import datetime, UTC
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
-from uuid import uuid4
+from unittest.mock import MagicMock
+from app.utils.uuid import uuid7
 
 import pytest
 from fastapi import HTTPException
@@ -15,13 +15,13 @@ from fastapi import HTTPException
 def _make_account(type_val, limit=None, account_number=None):
     from app.models.cuan import TrxAccount, TrxAccountType
     acc = MagicMock(spec=TrxAccount)
-    acc.id = uuid4()
+    acc.id = uuid7()
     acc.type = type_val
     acc.limit = limit
     acc.account_number = account_number
     acc.name = "Test"
     acc.description = None
-    acc.user_id = uuid4()
+    acc.user_id = uuid7()
     acc.created_at = datetime.now(UTC)
     acc.updated_at = datetime.now(UTC)
     return acc
@@ -30,7 +30,7 @@ def _make_account(type_val, limit=None, account_number=None):
 def _make_category(type_val):
     from app.models.cuan import TrxCategory, TrxCategoryType
     cat = MagicMock(spec=TrxCategory)
-    cat.id = uuid4()
+    cat.id = uuid7()
     cat.type = type_val
     cat.name = "Cat"
     return cat
@@ -59,7 +59,7 @@ def test_validate_account_not_found_raises_404():
     mock_db.query.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc:
-        validate_account(mock_db, uuid4(), uuid4())
+        validate_account(mock_db, uuid7(), uuid7())
     assert exc.value.status_code == 404
 
 
@@ -70,7 +70,7 @@ def test_validate_account_not_found_raises_404():
 def test_validate_category_none_id_returns_none():
     from app.utils.cuan_helpers import validate_category
     mock_db = MagicMock()
-    result = validate_category(mock_db, None, uuid4())
+    result = validate_category(mock_db, None, uuid7())
     assert result is None
 
 
@@ -82,7 +82,7 @@ def test_validate_category_found():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = cat
 
-    result = validate_category(mock_db, cat.id, uuid4())
+    result = validate_category(mock_db, cat.id, uuid7())
     assert result is cat
 
 
@@ -93,7 +93,7 @@ def test_validate_category_not_found_raises_404():
     mock_db.query.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc:
-        validate_category(mock_db, uuid4(), uuid4())
+        validate_category(mock_db, uuid7(), uuid7())
     assert exc.value.status_code == 404
 
 
@@ -161,7 +161,7 @@ def test_validate_transfer_non_transfer_with_fee_raises_400():
     from app.models.cuan import TransactionType
 
     with pytest.raises(HTTPException) as exc:
-        validate_transfer(TransactionType.INCOME, None, uuid4(), Decimal("10"), MagicMock(), uuid4())
+        validate_transfer(TransactionType.INCOME, None, uuid7(), Decimal("10"), MagicMock(), uuid7())
     assert exc.value.status_code == 400
 
 
@@ -169,7 +169,7 @@ def test_validate_transfer_non_transfer_no_fee_returns_none():
     from app.utils.cuan_helpers import validate_transfer
     from app.models.cuan import TransactionType
 
-    result = validate_transfer(TransactionType.INCOME, None, uuid4(), Decimal("0"), MagicMock(), uuid4())
+    result = validate_transfer(TransactionType.INCOME, None, uuid7(), Decimal("0"), MagicMock(), uuid7())
     assert result is None
 
 
@@ -178,7 +178,7 @@ def test_validate_transfer_missing_destination_raises_400():
     from app.models.cuan import TransactionType
 
     with pytest.raises(HTTPException) as exc:
-        validate_transfer(TransactionType.TRANSFER, None, uuid4(), Decimal("0"), MagicMock(), uuid4())
+        validate_transfer(TransactionType.TRANSFER, None, uuid7(), Decimal("0"), MagicMock(), uuid7())
     assert exc.value.status_code == 400
 
 
@@ -186,10 +186,10 @@ def test_validate_transfer_negative_fee_raises_400():
     from app.utils.cuan_helpers import validate_transfer
     from app.models.cuan import TransactionType
 
-    src_id = uuid4()
-    dst_id = uuid4()
+    src_id = uuid7()
+    dst_id = uuid7()
     with pytest.raises(HTTPException) as exc:
-        validate_transfer(TransactionType.TRANSFER, dst_id, src_id, Decimal("-1"), MagicMock(), uuid4())
+        validate_transfer(TransactionType.TRANSFER, dst_id, src_id, Decimal("-1"), MagicMock(), uuid7())
     assert exc.value.status_code == 400
 
 
@@ -197,9 +197,9 @@ def test_validate_transfer_same_account_raises_400():
     from app.utils.cuan_helpers import validate_transfer
     from app.models.cuan import TransactionType
 
-    same_id = uuid4()
+    same_id = uuid7()
     with pytest.raises(HTTPException) as exc:
-        validate_transfer(TransactionType.TRANSFER, same_id, same_id, Decimal("0"), MagicMock(), uuid4())
+        validate_transfer(TransactionType.TRANSFER, same_id, same_id, Decimal("0"), MagicMock(), uuid7())
     assert exc.value.status_code == 400
 
 
@@ -211,7 +211,7 @@ def test_validate_transfer_dest_not_found_raises_404():
     mock_db.query.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc:
-        validate_transfer(TransactionType.TRANSFER, uuid4(), uuid4(), Decimal("0"), mock_db, uuid4())
+        validate_transfer(TransactionType.TRANSFER, uuid7(), uuid7(), Decimal("0"), mock_db, uuid7())
     assert exc.value.status_code == 404
 
 
@@ -223,7 +223,7 @@ def test_validate_transfer_valid_returns_dest_account():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = dest
 
-    result = validate_transfer(TransactionType.TRANSFER, dest.id, uuid4(), Decimal("5"), mock_db, uuid4())
+    result = validate_transfer(TransactionType.TRANSFER, dest.id, uuid7(), Decimal("5"), mock_db, uuid7())
     assert result is dest
 
 
@@ -237,7 +237,7 @@ def test_prepare_account_bank_no_limit_ok():
 
     acc = prepare_account_for_db(
         {"name": "BCA", "type": TrxAccountType.BANK_ACCOUNT, "description": None, "limit": None, "account_number": "123"},
-        uuid4()
+        uuid7()
     )
     assert isinstance(acc, TrxAccount)
     assert acc.name == "BCA"
@@ -250,7 +250,7 @@ def test_prepare_account_credit_card_no_limit_raises_400():
     with pytest.raises(HTTPException) as exc:
         prepare_account_for_db(
             {"name": "Visa", "type": TrxAccountType.CREDIT_CARD, "description": None, "limit": None, "account_number": "4111"},
-            uuid4()
+            uuid7()
         )
     assert exc.value.status_code == 400
 
@@ -262,7 +262,7 @@ def test_prepare_account_bank_with_limit_raises_400():
     with pytest.raises(HTTPException) as exc:
         prepare_account_for_db(
             {"name": "BCA", "type": TrxAccountType.BANK_ACCOUNT, "description": None, "limit": Decimal("5000"), "account_number": "123"},
-            uuid4()
+            uuid7()
         )
     assert exc.value.status_code == 400
 
@@ -273,7 +273,7 @@ def test_prepare_account_other_no_limit_ok():
 
     acc = prepare_account_for_db(
         {"name": "Cash", "type": TrxAccountType.OTHER, "description": None, "limit": None, "account_number": None},
-        uuid4()
+        uuid7()
     )
     assert isinstance(acc, TrxAccount)
 
@@ -286,7 +286,7 @@ def test_prepare_category_for_db():
     from app.utils.cuan_helpers import prepare_category_for_db
     from app.models.cuan import TrxCategoryType, TrxCategory
 
-    cat = prepare_category_for_db({"name": "Food", "type": TrxCategoryType.EXPENSE}, uuid4())
+    cat = prepare_category_for_db({"name": "Food", "type": TrxCategoryType.EXPENSE}, uuid7())
     assert isinstance(cat, TrxCategory)
     assert cat.name == "Food"
 
@@ -304,13 +304,13 @@ def test_prepare_transaction_for_db():
             "description": "Salary",
             "amount": Decimal("1000"),
             "transaction_type": TransactionType.INCOME,
-            "account_id": uuid4(),
+            "account_id": uuid7(),
             "category_id": None,
             "transaction_date": datetime.now(UTC),
             "destination_account_id": None,
             "transfer_fee": Decimal("0"),
         },
-        uuid4()
+        uuid7()
     )
     assert isinstance(tx, Transaction)
     assert tx.amount == Decimal("1000")
@@ -347,7 +347,7 @@ def test_prepare_deleted_transaction_info():
     from app.models.cuan import Transaction, TransactionType
 
     tx = MagicMock(spec=Transaction)
-    tx.id = uuid4()
+    tx.id = uuid7()
     tx.description = "Salary"
     tx.amount = Decimal("500")
     tx.transaction_type = TransactionType.INCOME
@@ -369,7 +369,7 @@ def test_get_filtered_categories_no_filter():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
 
-    result = get_filtered_categories(mock_db, uuid4())
+    result = get_filtered_categories(mock_db, uuid7())
     assert result == []
 
 
@@ -380,7 +380,7 @@ def test_get_filtered_categories_income():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.filter.return_value.order_by.return_value.all.return_value = [cat]
 
-    result = get_filtered_categories(mock_db, uuid4(), "income")
+    result = get_filtered_categories(mock_db, uuid7(), "income")
     assert result == [cat]
 
 
@@ -391,7 +391,7 @@ def test_get_filtered_categories_invalid_type_raises_400():
     mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
 
     with pytest.raises(HTTPException) as exc:
-        get_filtered_categories(mock_db, uuid4(), "invalid_type")
+        get_filtered_categories(mock_db, uuid7(), "invalid_type")
     assert exc.value.status_code == 400
 
 

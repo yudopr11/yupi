@@ -1,7 +1,5 @@
 """Tests for app/schemas/blog.py and app/schemas/ngakak.py."""
-from datetime import datetime, UTC
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -60,6 +58,43 @@ def test_paginated_posts_response_has_more():
     from app.schemas.blog import PaginatedPostsResponse
     schema = PaginatedPostsResponse(items=[], total_count=100, has_more=True, limit=10, skip=0)
     assert schema.has_more is True
+
+
+def test_paginated_posts_response_next_cursor_default_none():
+    from app.schemas.blog import PaginatedPostsResponse
+    schema = PaginatedPostsResponse(items=[], total_count=0, has_more=False, limit=10, skip=0)
+    assert schema.next_cursor is None
+
+
+def test_paginated_posts_response_next_cursor_string():
+    from app.schemas.blog import PaginatedPostsResponse
+    schema = PaginatedPostsResponse(
+        items=[], total_count=10, has_more=True, limit=10, skip=0,
+        next_cursor="2026-02-11T16:13:03.135932Z"
+    )
+    assert schema.next_cursor == "2026-02-11T16:13:03.135932Z"
+
+
+# ---------------------------------------------------------------------------
+# PostBase validation
+# ---------------------------------------------------------------------------
+
+def test_post_base_title_too_long_raises():
+    from app.schemas.blog import PostBase
+    with pytest.raises(ValidationError):
+        PostBase(title="x" * 201, content="some content")
+
+
+def test_post_base_empty_title_raises():
+    from app.schemas.blog import PostBase
+    with pytest.raises(ValidationError):
+        PostBase(title="", content="some content")
+
+
+def test_post_base_empty_content_raises():
+    from app.schemas.blog import PostBase
+    with pytest.raises(ValidationError):
+        PostBase(title="Valid Title", content="")
 
 
 # ---------------------------------------------------------------------------

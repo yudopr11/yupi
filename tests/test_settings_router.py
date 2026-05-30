@@ -1,8 +1,6 @@
 """Tests for app/routers/settings.py endpoints."""
-from unittest.mock import MagicMock, patch
-from uuid import uuid4
-
-import pytest
+from unittest.mock import MagicMock
+from app.utils.uuid import uuid7
 
 
 # ---------------------------------------------------------------------------
@@ -17,7 +15,7 @@ def test_get_or_create_settings_existing():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = mock_us
 
-    result = _get_or_create_settings(mock_db, uuid4())
+    result = _get_or_create_settings(mock_db, uuid7())
     assert result == mock_us
     mock_db.add.assert_not_called()
 
@@ -29,7 +27,7 @@ def test_get_or_create_settings_creates_new():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = None
 
-    user_id = uuid4()
+    user_id = uuid7()
     result = _get_or_create_settings(mock_db, user_id)
 
     mock_db.add.assert_called_once()

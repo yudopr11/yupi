@@ -1,7 +1,6 @@
 """Tests for app/utils/auth.py — password, JWT, and user dependency helpers."""
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException

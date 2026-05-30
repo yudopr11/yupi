@@ -1,7 +1,7 @@
 """Tests for app/schemas/cuan.py Pydantic schemas."""
 from datetime import datetime, UTC
 from decimal import Decimal
-from uuid import uuid4
+from app.utils.uuid import uuid7
 
 import pytest
 from pydantic import ValidationError
@@ -93,8 +93,8 @@ def test_transaction_create_income_valid():
         description="Salary",
         amount=Decimal("1000"),
         transaction_type="income",
-        account_id=uuid4(),
-        category_id=uuid4(),
+        account_id=uuid7(),
+        category_id=uuid7(),
         transaction_date=datetime.now(UTC),
     )
     assert schema.transaction_type.value == "income"
@@ -108,10 +108,10 @@ def test_transaction_create_transfer_with_destination():
         description="Move funds",
         amount=Decimal("500"),
         transaction_type="transfer",
-        account_id=uuid4(),
+        account_id=uuid7(),
         category_id=None,
         transaction_date=datetime.now(UTC),
-        destination_account_id=uuid4(),
+        destination_account_id=uuid7(),
         transfer_fee=Decimal("5"),
     )
     assert schema.destination_account_id is not None
@@ -124,7 +124,7 @@ def test_transaction_create_missing_amount_raises():
         TransactionCreate(
             description="X",
             transaction_type="income",
-            account_id=uuid4(),
+            account_id=uuid7(),
             transaction_date=datetime.now(UTC),
         )
 
@@ -136,7 +136,7 @@ def test_transaction_create_invalid_type_raises():
             description="X",
             amount=Decimal("100"),
             transaction_type="refund",
-            account_id=uuid4(),
+            account_id=uuid7(),
             transaction_date=datetime.now(UTC),
         )
 
@@ -147,7 +147,7 @@ def test_transaction_create_zero_amount_is_allowed():
         description="X",
         amount=Decimal("0"),
         transaction_type="income",
-        account_id=uuid4(),
+        account_id=uuid7(),
         transaction_date=datetime.now(UTC),
     )
     assert schema.amount == Decimal("0")
@@ -160,11 +160,11 @@ def test_transaction_create_zero_amount_is_allowed():
 def test_account_response_data_from_dict():
     from app.schemas.cuan import TrxAccountResponseData
     data = TrxAccountResponseData(
-        id=uuid4(),
+        id=uuid7(),
         name="BCA",
         type="bank_account",
         account_number="9876543210",
-        user_id=uuid4(),
+        user_id=uuid7(),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )

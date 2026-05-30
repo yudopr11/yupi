@@ -220,6 +220,8 @@ async def chat(
 
 @router.get("/conversations", response_model=list[ConversationResponse])
 async def list_conversations(
+    skip: int = 0,
+    limit: int = 20,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -227,25 +229,43 @@ async def list_conversations(
         db.query(Conversation)
         .filter(Conversation.user_id == current_user.id)
         .order_by(Conversation.updated_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
-    result = []
-    for conv in convs:
-        last_msg = (
-            db.query(ChatMessage)
-            .filter(ChatMessage.conversation_id == conv.id)
-            .order_by(ChatMessage.created_at.desc())
-            .first()
+    if not convs:
+        return []
+
+    # Bulk fetch last message per conversation (no N+1)
+    conv_ids = [c.id for c in convs]
+    from sqlalchemy import func as sa_func
+    subq = (
+        db.query(
+            ChatMessage.conversation_id,
+            ChatMessage.content,
+            sa_func.row_number().over(
+                partition_by=ChatMessage.conversation_id,
+                order_by=ChatMessage.created_at.desc(),
+            ).label("rn"),
         )
-        preview = last_msg.content[:100] if last_msg else None
-        result.append(ConversationResponse(
+        .filter(ChatMessage.conversation_id.in_(conv_ids))
+        .subquery()
+    )
+    last_msgs = {
+        row.conversation_id: row.content[:100]
+        for row in db.query(subq).filter(subq.c.rn == 1).all()
+    }
+
+    return [
+        ConversationResponse(
             id=conv.id,
             title=conv.title,
             created_at=conv.created_at,
             updated_at=conv.updated_at,
-            last_message_preview=preview,
-        ))
-    return result
+            last_message_preview=last_msgs.get(conv.id),
+        )
+        for conv in convs
+    ]
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetailResponse)
@@ -348,9 +368,10 @@ async def delete_conversation(
     ).first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    info = {"id": str(conv.id), "title": conv.title}
     db.delete(conv)
     db.commit()
-    return {"detail": "Deleted"}
+    return {"message": "Conversation deleted", "deleted_item": info}
 
 
 # --- Settings ---

@@ -1,6 +1,6 @@
 """Tests for app/schemas/chat.py Pydantic schemas."""
 from datetime import datetime, UTC
-from uuid import uuid4
+from app.utils.uuid import uuid7
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 def test_chat_request_valid_with_conversation():
     from app.schemas.chat import ChatRequest
-    schema = ChatRequest(conversation_id=uuid4(), message="Hello")
+    schema = ChatRequest(conversation_id=uuid7(), message="Hello")
     assert schema.message == "Hello"
     assert schema.conversation_id is not None
 
@@ -29,10 +29,11 @@ def test_chat_request_missing_message_raises():
         ChatRequest()
 
 
-def test_chat_request_empty_message_allowed():
+def test_chat_request_empty_message_rejected():
     from app.schemas.chat import ChatRequest
-    schema = ChatRequest(message="")
-    assert schema.message == ""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        ChatRequest(message="")
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ def test_chat_request_empty_message_allowed():
 def test_tool_call_response_valid():
     from app.schemas.chat import ToolCallResponse
     schema = ToolCallResponse(
-        id=uuid4(),
+        id=uuid7(),
         tool_name="get_accounts",
         arguments={"limit": 10},
         result={"accounts": []},
@@ -58,7 +59,7 @@ def test_tool_call_response_valid():
 def test_tool_call_response_error():
     from app.schemas.chat import ToolCallResponse
     schema = ToolCallResponse(
-        id=uuid4(),
+        id=uuid7(),
         tool_name="bad_tool",
         status="error",
         error_message="Tool not found",
@@ -80,7 +81,7 @@ def test_tool_call_response_missing_required_raises():
 def test_message_response_valid():
     from app.schemas.chat import MessageResponse
     schema = MessageResponse(
-        id=uuid4(),
+        id=uuid7(),
         role="assistant",
         content="Hello!",
         created_at=datetime.now(UTC),
@@ -92,11 +93,11 @@ def test_message_response_valid():
 def test_message_response_with_tool_calls():
     from app.schemas.chat import MessageResponse, ToolCallResponse
     tc = ToolCallResponse(
-        id=uuid4(), tool_name="x", status="completed",
+        id=uuid7(), tool_name="x", status="completed",
         created_at=datetime.now(UTC),
     )
     schema = MessageResponse(
-        id=uuid4(), role="assistant", content="",
+        id=uuid7(), role="assistant", content="",
         created_at=datetime.now(UTC), tool_calls=[tc],
     )
     assert len(schema.tool_calls) == 1
@@ -109,7 +110,7 @@ def test_message_response_with_tool_calls():
 def test_conversation_response_valid():
     from app.schemas.chat import ConversationResponse
     schema = ConversationResponse(
-        id=uuid4(),
+        id=uuid7(),
         title="My Chat",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -121,7 +122,7 @@ def test_conversation_response_valid():
 def test_conversation_response_with_preview():
     from app.schemas.chat import ConversationResponse
     schema = ConversationResponse(
-        id=uuid4(),
+        id=uuid7(),
         title="Chat",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -137,7 +138,7 @@ def test_conversation_response_with_preview():
 def test_conversation_detail_response_inherits():
     from app.schemas.chat import ConversationDetailResponse
     schema = ConversationDetailResponse(
-        id=uuid4(),
+        id=uuid7(),
         title="Chat",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -148,11 +149,11 @@ def test_conversation_detail_response_inherits():
 def test_conversation_detail_response_with_messages():
     from app.schemas.chat import ConversationDetailResponse, MessageResponse
     msg = MessageResponse(
-        id=uuid4(), role="user", content="Hi",
+        id=uuid7(), role="user", content="Hi",
         created_at=datetime.now(UTC),
     )
     schema = ConversationDetailResponse(
-        id=uuid4(), title="Chat",
+        id=uuid7(), title="Chat",
         created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
         messages=[msg],
     )

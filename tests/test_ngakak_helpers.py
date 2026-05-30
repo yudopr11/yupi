@@ -1,6 +1,5 @@
 """Tests for ngakak router helpers: validate_image, cleanup_old_records, rate limiting."""
 from datetime import datetime, timedelta
-from io import BytesIO
 from unittest.mock import MagicMock
 
 import pytest

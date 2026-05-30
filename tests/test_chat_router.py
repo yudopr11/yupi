@@ -1,8 +1,7 @@
 """Tests for app/routers/chat.py endpoints."""
-import json
 from datetime import datetime, UTC
-from unittest.mock import MagicMock, AsyncMock, patch
-from uuid import uuid4
+from unittest.mock import MagicMock, patch
+from app.utils.uuid import uuid7
 
 import pytest
 from fastapi import HTTPException
@@ -19,7 +18,7 @@ def test_get_user_mimo_config_from_env():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = None
     mock_user = MagicMock()
-    mock_user.id = uuid4()
+    mock_user.id = uuid7()
 
     with patch("app.routers.chat.app_settings") as mock_settings:
         mock_settings.MIMO_API_KEY = "env-key"
@@ -45,7 +44,7 @@ def test_get_user_mimo_config_from_user_settings():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = mock_us
     mock_user = MagicMock()
-    mock_user.id = uuid4()
+    mock_user.id = uuid7()
 
     api_key, base_url, model, mcp_endpoint = _get_user_mimo_config(mock_db, mock_user)
 
@@ -117,7 +116,7 @@ def test_load_conversation_messages_user_msg():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [msg]
 
-    result = _load_conversation_messages(mock_db, uuid4())
+    result = _load_conversation_messages(mock_db, uuid7())
 
     assert len(result) == 1
     assert result[0] == {"role": "user", "content": "Hello"}
@@ -128,7 +127,7 @@ def test_load_conversation_messages_assistant_with_tools():
     from app.routers.chat import _load_conversation_messages
 
     tc = MagicMock()
-    tc.id = uuid4()
+    tc.id = uuid7()
     tc.tool_name = "get_accounts"
     tc.arguments = {"limit": 5}
 
@@ -141,7 +140,7 @@ def test_load_conversation_messages_assistant_with_tools():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [msg]
 
-    result = _load_conversation_messages(mock_db, uuid4())
+    result = _load_conversation_messages(mock_db, uuid7())
 
     assert len(result) == 1
     content = result[0]["content"]
@@ -164,5 +163,5 @@ def test_load_conversation_messages_skips_tool_role():
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [msg]
 
-    result = _load_conversation_messages(mock_db, uuid4())
+    result = _load_conversation_messages(mock_db, uuid7())
     assert len(result) == 0

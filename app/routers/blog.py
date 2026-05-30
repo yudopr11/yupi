@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import List, Optional, Literal
+from typing import Optional, Literal
 import uuid
 from app.utils.database import get_db
 from app.utils.auth import get_non_guest_user, get_non_guest_superuser
@@ -36,11 +36,12 @@ router = APIRouter(
 )
 async def get_posts(
     skip: int = 0,
-    limit: int = 3,
+    limit: int = 10,
+    cursor: Optional[str] = None,
     search: str = None,
     tag: str = None,
     published_status: Optional[Literal["published", "unpublished", "all"]] = "published",
-    use_rag: bool = False,  # New parameter to enable/disable RAG search
+    use_rag: bool = False,
     db: Session = Depends(get_db)
 ):
     """
@@ -75,49 +76,55 @@ async def get_posts(
         if published_status == "all":
             is_published_only = False
         elif published_status == "unpublished":
-            # For unpublished posts, we'll filter after getting results
             is_published_only = False
-        
+
         # Get semantic search results
-        similarity_threshold = 0.3  # Minimum similarity score (0-1)
+        similarity_threshold = 0.3
         vector_results = search_posts_by_embedding(
             query=search,
             db=db,
-            limit=100,  # Get more results initially for filtering
+            limit=100,
             similarity_threshold=similarity_threshold,
             published_only=is_published_only
         )
-        
+
         # Filter by published status if needed
         if published_status == "unpublished":
             vector_results = [post for post in vector_results if not post["published"]]
-        
+
         # Filter by tag if provided
         if tag:
             vector_results = [
-                post for post in vector_results 
+                post for post in vector_results
                 if post["tags"] and any(t.lower() == tag.lower() for t in post["tags"])
             ]
-        
-        # Get total count for pagination
+
         total_count = len(vector_results)
-        
+
+        # Cursor-based: filter by created_at < cursor
+        next_cursor = None
+        if cursor:
+            from datetime import datetime as dt
+            cursor_dt = dt.fromisoformat(cursor)
+            vector_results = [p for p in vector_results if p["created_at"] and p["created_at"] < cursor_dt]
+
         # Apply pagination
-        start_idx = min(skip, total_count)
-        end_idx = min(skip + limit + 1, total_count)
-        paginated_results = vector_results[start_idx:end_idx]
-        
-        # Check if there are more items
+        paginated_results = vector_results[:limit + 1]
+
         has_more = len(paginated_results) > limit
         if has_more:
             paginated_results = paginated_results[:limit]
-        
+            last = paginated_results[-1]
+            created = last.get("created_at")
+            next_cursor = created.isoformat() if hasattr(created, "isoformat") else (created if isinstance(created, str) else None)
+
         return {
             "items": paginated_results,
             "total_count": total_count,
             "has_more": has_more,
             "limit": limit,
-            "skip": skip
+            "skip": skip,
+            "next_cursor": next_cursor,
         }
     
     # Otherwise use traditional SQL search
@@ -151,21 +158,30 @@ async def get_posts(
         
         # Get total count before applying pagination
         total_count = query.count()
-        
+
+        # Cursor-based pagination: filter by created_at < cursor
+        next_cursor = None
+        if cursor:
+            from datetime import datetime as dt
+            cursor_dt = dt.fromisoformat(cursor)
+            query = query.filter(Post.created_at < cursor_dt)
+
         # Apply pagination and return results
-        items = query.order_by(Post.created_at.desc()).offset(skip).limit(limit+1).all()
-        
+        items = query.order_by(Post.created_at.desc()).offset(skip).limit(limit + 1).all()
+
         # Check if there are more items
         has_more = len(items) > limit
         if has_more:
-            items = items[:limit]  # Remove the extra item we fetched
+            items = items[:limit]
+            next_cursor = items[-1].created_at.isoformat() if items else None
         
         return {
             "items": items,
             "total_count": total_count,
             "has_more": has_more,
             "limit": limit,
-            "skip": skip
+            "skip": skip,
+            "next_cursor": next_cursor,
         }
 
 @router.get(
@@ -382,7 +398,7 @@ async def update_post(
         post.reading_time = calculate_reading_time(post_update.content)
     
     # Update embedding if title or excerpt changed
-    if post_update.title or "excerpt" in post_data:
+    if post_update.title or post_data.get("excerpt") is not None:
         post.embedding = generate_post_embedding(
             title=post.title, 
             excerpt=post.excerpt

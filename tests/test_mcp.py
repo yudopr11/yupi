@@ -2,10 +2,9 @@
 import base64
 import json
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from app.utils.uuid import uuid7
 
 import pytest
-import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 
@@ -19,7 +18,7 @@ def make_token(username: str, password: str) -> str:
 
 def make_mock_user(username="testuser", email="test@example.com", is_superuser=False):
     user = MagicMock()
-    user.id = uuid4()
+    user.id = uuid7()
     user.username = username
     user.email = email
     user.is_superuser = is_superuser
@@ -225,7 +224,7 @@ async def test_tool_list_all_users_superuser():
     superuser = make_mock_user(is_superuser=True)
 
     u1 = MagicMock()
-    u1.id = uuid4()
+    u1.id = uuid7()
     u1.username = "bob"
     u1.email = "bob@example.com"
     u1.is_superuser = False
@@ -293,7 +292,7 @@ async def test_tool_list_categories_calls_db():
     mock_db = MagicMock()
 
     cat = MagicMock()
-    cat.id = uuid4()
+    cat.id = uuid7()
     cat.name = "Food"
     cat.type = MagicMock()
     cat.type.value = "expense"

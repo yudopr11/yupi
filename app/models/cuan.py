@@ -1,9 +1,10 @@
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, TypeDecorator, DECIMAL, DateTime
+from sqlalchemy import Column, String, Text, ForeignKey, TypeDecorator, DECIMAL, DateTime, Index
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.utils.database import Base
-import enum, uuid
+import enum
+from app.utils.uuid import uuid7
 
 # Custom type decorator to handle enum values properly
 class EnumAsString(TypeDecorator):
@@ -34,7 +35,7 @@ class TrxAccountType(str, enum.Enum):
 class TrxAccount(Base):
     __tablename__ = "cuan_accounts"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     name = Column(String, nullable=False)
     type = Column(EnumAsString(TrxAccountType), nullable=False)
     description = Column(Text)
@@ -52,14 +53,18 @@ class TrxCategoryType(str, enum.Enum):
 
 class TrxCategory(Base):
     __tablename__ = "cuan_categories"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    __table_args__ = (
+        Index("ix_cuan_categories_user_type", "user_id", "type"),
+        Index("ix_cuan_categories_user_name", "user_id", "name"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     name = Column(String, nullable=False)
     type = Column(EnumAsString(TrxCategoryType), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
-    
+
     user = relationship("User", back_populates="trx_categories")
 
 class TransactionType(str, enum.Enum):
@@ -69,8 +74,14 @@ class TransactionType(str, enum.Enum):
 
 class Transaction(Base):
     __tablename__ = "cuan_transactions"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    __table_args__ = (
+        Index("ix_cuan_transactions_user_date", "user_id", "transaction_date"),
+        Index("ix_cuan_transactions_user_type", "user_id", "transaction_type"),
+        Index("ix_cuan_transactions_account_id", "account_id"),
+        Index("ix_cuan_transactions_dest_account_id", "destination_account_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     transaction_date = Column(DateTime(timezone=True), nullable=False)
     description = Column(Text, nullable=False)
     amount = Column(DECIMAL(10, 2), nullable=False)

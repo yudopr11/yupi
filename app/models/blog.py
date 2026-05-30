@@ -1,15 +1,15 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ARRAY, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ARRAY, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-import uuid
+from app.utils.uuid import uuid7
 from app.utils.database import Base
 from pgvector.sqlalchemy import Vector
 
 class Post(Base):
     __tablename__ = "blog_posts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     title = Column(String, nullable=False)
     excerpt = Column(String, nullable=False)
     content = Column(Text, nullable=False)  # Using Text for longer content

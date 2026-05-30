@@ -1,5 +1,5 @@
 """Tests for app/schemas/auth.py Pydantic schemas."""
-from uuid import uuid4
+from app.utils.uuid import uuid7
 from datetime import datetime, UTC
 
 import pytest
@@ -20,26 +20,26 @@ def test_user_create_valid():
 
 def test_user_create_superuser_flag():
     from app.schemas.auth import UserCreate
-    schema = UserCreate(username="admin", email="admin@example.com", password="pass", is_superuser=True)
+    schema = UserCreate(username="admin", email="admin@example.com", password="password123", is_superuser=True)
     assert schema.is_superuser is True
 
 
 def test_user_create_missing_username_raises():
     from app.schemas.auth import UserCreate
     with pytest.raises(ValidationError):
-        UserCreate(email="x@example.com", password="pass")
+        UserCreate(email="x@example.com", password="password123")
 
 
 def test_user_create_missing_email_raises():
     from app.schemas.auth import UserCreate
     with pytest.raises(ValidationError):
-        UserCreate(username="x", password="pass")
+        UserCreate(username="x", password="password123")
 
 
 def test_user_create_invalid_email_raises():
     from app.schemas.auth import UserCreate
     with pytest.raises(ValidationError):
-        UserCreate(username="x", email="not-an-email", password="pass")
+        UserCreate(username="x", email="not-an-email", password="password123")
 
 
 def test_user_create_missing_password_raises():
@@ -55,7 +55,7 @@ def test_user_create_missing_password_raises():
 def test_user_response_valid():
     from app.schemas.auth import UserResponse
     schema = UserResponse(
-        id=uuid4(),
+        id=uuid7(),
         username="bob",
         email="bob@example.com",
         is_superuser=False,
@@ -140,7 +140,7 @@ def test_reset_password_request_valid():
 def test_reset_password_request_missing_token_raises():
     from app.schemas.auth import ResetPasswordRequest
     with pytest.raises(ValidationError):
-        ResetPasswordRequest(new_password="newpass")
+        ResetPasswordRequest(new_password="newpass1")
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ def test_reset_password_request_missing_token_raises():
 
 def test_deleted_user_info_valid():
     from app.schemas.auth import DeletedUserInfo
-    schema = DeletedUserInfo(id=uuid4(), username="dave")
+    schema = DeletedUserInfo(id=uuid7(), username="dave")
     assert schema.username == "dave"
 
 
@@ -157,7 +157,7 @@ def test_delete_user_response_valid():
     from app.schemas.auth import DeleteUserResponse, DeletedUserInfo
     schema = DeleteUserResponse(
         message="User deleted",
-        deleted_item=DeletedUserInfo(id=uuid4(), username="dave")
+        deleted_item=DeletedUserInfo(id=uuid7(), username="dave")
     )
     assert schema.message == "User deleted"
     assert schema.deleted_item.username == "dave"

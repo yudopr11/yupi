@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5433/postgres"
 
     # JWT settings
-    SECRET_KEY: str = "your-super-secret-key-that-should-be-very-long-and-random"
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     API_VERSION: str = "1.0.0"
 
     # OpenAI API Key
-    OPENAI_API_KEY: str = "sk-proj-1234567890"
+    OPENAI_API_KEY: str = ""
     
     # MiMo LLM settings (defaults, can be overridden per-user in DB)
     MIMO_API_KEY: str = ""
@@ -51,6 +51,6 @@ class Settings(BaseSettings):
     MAIL_USE_CREDENTIALS: bool = True
     MAIL_VALIDATE_CERTS: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 settings = Settings() 

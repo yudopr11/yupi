@@ -93,6 +93,8 @@ init_cors(app)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not settings.SECRET_KEY:
+        raise RuntimeError("SECRET_KEY must be set in environment or .env file")
     db = next(get_db())
     create_superuser(db)
     yield

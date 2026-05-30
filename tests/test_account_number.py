@@ -1,7 +1,7 @@
 """TDD tests for account_number field on TrxAccount."""
 from datetime import datetime, UTC
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from app.utils.uuid import uuid7
 
 import pytest
 from pydantic import ValidationError
@@ -43,13 +43,12 @@ def test_credit_card_with_account_number_ok():
 
 def test_response_schema_includes_account_number():
     from app.schemas.cuan import TrxAccountResponseData
-    import uuid
     data = TrxAccountResponseData(
-        id=uuid.uuid4(),
+        id=uuid7(),
         name="BCA",
         type="bank_account",
         account_number="9876543210",
-        user_id=uuid.uuid4(),
+        user_id=uuid7(),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -66,7 +65,7 @@ def test_prepare_account_passes_account_number():
 
     account = prepare_account_for_db(
         {"name": "Mandiri", "type": TrxAccountType.BANK_ACCOUNT, "description": None, "limit": None, "account_number": "1122334455"},
-        uuid4(),
+        uuid7(),
     )
     assert account.account_number == "1122334455"
 
@@ -77,7 +76,7 @@ def test_prepare_account_other_no_account_number():
 
     account = prepare_account_for_db(
         {"name": "Cash", "type": TrxAccountType.OTHER, "description": None, "limit": None, "account_number": None},
-        uuid4(),
+        uuid7(),
     )
     assert account.account_number is None
 
@@ -90,7 +89,7 @@ def test_serialize_account_includes_account_number():
     from app.mcp.tools import _serialize_account
 
     mock_account = MagicMock()
-    mock_account.id = uuid4()
+    mock_account.id = uuid7()
     mock_account.name = "BCA"
     mock_account.type = MagicMock()
     mock_account.type.value = "bank_account"
@@ -106,7 +105,7 @@ def test_serialize_account_number_none():
     from app.mcp.tools import _serialize_account
 
     mock_account = MagicMock()
-    mock_account.id = uuid4()
+    mock_account.id = uuid7()
     mock_account.name = "Cash"
     mock_account.type = MagicMock()
     mock_account.type.value = "other"
@@ -128,11 +127,11 @@ async def test_create_account_impl_passes_account_number():
     from app.mcp.tools import create_account_impl
 
     user = MagicMock()
-    user.id = uuid4()
+    user.id = uuid7()
     user.username = "alice"
 
     mock_account = MagicMock()
-    mock_account.id = uuid4()
+    mock_account.id = uuid7()
     mock_account.name = "BCA"
     mock_account.type = MagicMock()
     mock_account.type.value = "bank_account"
@@ -166,11 +165,11 @@ async def test_update_account_impl_updates_account_number():
     from app.models.cuan import TrxAccountType
 
     user = MagicMock()
-    user.id = uuid4()
+    user.id = uuid7()
     user.username = "alice"
 
     mock_account = MagicMock()
-    mock_account.id = uuid4()
+    mock_account.id = uuid7()
     mock_account.name = "BCA"
     mock_account.type = TrxAccountType.BANK_ACCOUNT
     mock_account.description = None

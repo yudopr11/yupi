@@ -1,14 +1,15 @@
 """MCP tool implementations — call DB/services directly, no HTTP."""
 import mimetypes
 import uuid
-from datetime import datetime
+from app.utils.uuid import uuid7
+from datetime import datetime, UTC
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
 from openai import OpenAI
-from sqlalchemy import desc, func, or_, and_, case
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -18,12 +19,10 @@ from app.models.blog import Post
 from app.models.cuan import (
     Transaction,
     TransactionType,
-    TrxAccount,
     TrxAccountType,
     TrxCategory,
-    TrxCategoryType,
 )
-from app.utils.auth import get_password_hash, verify_password
+from app.utils.auth import get_password_hash
 from app.utils.blog_helpers import (
     calculate_reading_time,
     generate_post_content,
@@ -34,6 +33,7 @@ from app.utils.blog_helpers import (
 from app.utils.cuan_helpers import (
     calculate_account_balance,
     calculate_date_range,
+    create_credit_card_initial_transaction,
     get_accounts_with_balance,
     get_filtered_categories,
     get_filtered_transactions,
@@ -189,6 +189,8 @@ async def delete_user_impl(user_id: str) -> dict:
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise LookupError(f"User {user_id} not found")
+    if str(target.id) == str(_user().id):
+        raise PermissionError("Cannot delete your own account")
     info = {"id": str(target.id), "username": target.username, "email": target.email}
     db.delete(target)
     db.commit()
@@ -219,7 +221,7 @@ async def list_posts_impl(
         query = query.filter(Post.tags.contains([tag]))
 
     if search and use_rag:
-        posts = search_posts_by_embedding(db, search, limit=limit, skip=skip, published_only=(published_status == "published"))
+        posts = search_posts_by_embedding(query=search, db=db, limit=limit, published_only=(published_status == "published"))
         return {"data": [_serialize_post(p) for p in posts], "total_count": len(posts), "has_more": False, "skip": skip, "limit": limit}
 
     if search:
@@ -266,10 +268,10 @@ async def create_post_impl(
     slug = generate_slug(title)
     existing = db.query(Post).filter(Post.slug == slug).first()
     if existing:
-        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+        slug = f"{slug}-{uuid7().hex[:6]}"
 
     post = Post(
-        id=uuid.uuid4(),
+        id=uuid7(),
         title=title,
         slug=slug,
         content=content,
@@ -282,7 +284,9 @@ async def create_post_impl(
     db.add(post)
     db.commit()
     db.refresh(post)
-    generate_post_embedding(db, post)
+    post.embedding = generate_post_embedding(post.title, post.excerpt)
+    db.commit()
+    db.refresh(post)
     return _serialize_post(post)
 
 
@@ -302,7 +306,7 @@ async def update_post_impl(
     if str(post.user_id) != str(user.id) and not user.is_superuser:
         raise PermissionError("Only the author or superuser can update this post")
 
-    generated = generate_post_content(title, content, existing_tags=tags, need_excerpt=(excerpt is None))
+    generated = generate_post_content(title, content, existing_tags=tags, need_excerpt=(excerpt is None), need_tags=(tags is None))
     post.title = title
     post.content = content
     post.published = published
@@ -312,11 +316,13 @@ async def update_post_impl(
 
     slug = generate_slug(title)
     existing = db.query(Post).filter(Post.slug == slug, Post.id != post.id).first()
-    post.slug = f"{slug}-{uuid.uuid4().hex[:6]}" if existing else slug
+    post.slug = f"{slug}-{uuid7().hex[:6]}" if existing else slug
 
     db.commit()
     db.refresh(post)
-    generate_post_embedding(db, post)
+    post.embedding = generate_post_embedding(post.title, post.excerpt)
+    db.commit()
+    db.refresh(post)
     return _serialize_post(post)
 
 
@@ -377,28 +383,7 @@ async def create_account_impl(
     db.refresh(account)
 
     if account.type == TrxAccountType.CREDIT_CARD and account.limit is not None:
-        other_cat = db.query(TrxCategory).filter(
-            TrxCategory.name == "Other",
-            TrxCategory.type == TrxCategoryType.INCOME,
-            TrxCategory.user_id == user.id,
-        ).first()
-        if not other_cat:
-            other_cat = TrxCategory(id=uuid.uuid4(), name="Other", type=TrxCategoryType.INCOME, user_id=user.id)
-            db.add(other_cat)
-            db.commit()
-            db.refresh(other_cat)
-        initial_tx = Transaction(
-            id=uuid.uuid4(),
-            transaction_date=datetime.utcnow(),
-            description="Initial credit card balance",
-            amount=account.limit,
-            transaction_type=TransactionType.INCOME,
-            account_id=account.id,
-            category_id=other_cat.id,
-            user_id=user.id,
-        )
-        db.add(initial_tx)
-        db.commit()
+        create_credit_card_initial_transaction(db, account, user.id)
 
     return _serialize_account(account)
 
@@ -511,33 +496,30 @@ async def list_transactions_impl(
     user = _user()
     parsed_start = datetime.fromisoformat(start_date) if start_date else None
     parsed_end = datetime.fromisoformat(end_date) if end_date else None
-    try:
-        query = get_filtered_transactions(
-            db=db,
-            user_id=user.id,
-            account_name=account_name,
-            category_name=category_name,
-            transaction_type=transaction_type,
-            start_date=parsed_start,
-            end_date=parsed_end,
-            date_filter_type=date_filter_type,
-            timezone=timezone,
-            order_by=order_by,
-            sort_order=sort_order,
-            return_query=True,
-        )
-        total = query.count()
-        txs = query.offset(skip).limit(limit + 1).all()
-        has_more = len(txs) > limit
-        return {
-            "data": [_serialize_transaction(t) for t in txs[:limit]],
-            "total_count": total,
-            "has_more": has_more,
-            "limit": limit,
-            "skip": skip,
-        }
-    except HTTPException as e:
-        return {"data": [], "total_count": 0, "has_more": False, "limit": limit, "skip": skip, "message": e.detail}
+    query = get_filtered_transactions(
+        db=db,
+        user_id=user.id,
+        account_name=account_name,
+        category_name=category_name,
+        transaction_type=transaction_type,
+        start_date=parsed_start,
+        end_date=parsed_end,
+        date_filter_type=date_filter_type,
+        timezone=timezone,
+        order_by=order_by,
+        sort_order=sort_order,
+        return_query=True,
+    )
+    total = query.count()
+    txs = query.offset(skip).limit(limit + 1).all()
+    has_more = len(txs) > limit
+    return {
+        "data": [_serialize_transaction(t) for t in txs[:limit]],
+        "total_count": total,
+        "has_more": has_more,
+        "limit": limit,
+        "skip": skip,
+    }
 
 
 async def create_transaction_impl(

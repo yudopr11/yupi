@@ -1,15 +1,15 @@
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session, Query, aliased
+from sqlalchemy.orm import Session, Query
 from sqlalchemy import func, case, or_, desc, and_
 from typing import Dict, Any, Tuple, Union, Optional, List
 import uuid
+from app.utils.uuid import uuid7
 from datetime import datetime, timedelta, UTC
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import calendar
 from decimal import Decimal
 
 from app.models.cuan import TrxAccount, TrxAccountType, TrxCategory, TrxCategoryType, Transaction, TransactionType
-from app.models.auth import User
 
 # --- Validation Helpers ---
 
@@ -132,19 +132,47 @@ def prepare_account_for_db(account_data: Dict[str, Any], user_id: uuid.UUID) -> 
             detail=f"Account type '{pretty_account_type}' cannot have a limit. Only credit cards are allowed a limit."
         )
 
-    return TrxAccount(id=uuid.uuid4(), user_id=user_id, **account_data)
+    return TrxAccount(id=uuid7(), user_id=user_id, **account_data)
 
 def prepare_category_for_db(category_data: Dict[str, Any], user_id: uuid.UUID) -> TrxCategory:
     """
     Prepares a category object for database insertion.
     """
-    return TrxCategory(id=uuid.uuid4(), user_id=user_id, **category_data)
+    return TrxCategory(id=uuid7(), user_id=user_id, **category_data)
 
 def prepare_transaction_for_db(transaction_data: Dict[str, Any], user_id: uuid.UUID) -> Transaction:
     """
     Prepares a transaction object for database insertion.
     """
-    return Transaction(id=uuid.uuid4(), user_id=user_id, **transaction_data)
+    return Transaction(id=uuid7(), user_id=user_id, **transaction_data)
+
+
+def create_credit_card_initial_transaction(db: Session, account: TrxAccount, user_id: uuid.UUID) -> None:
+    """Create 'Other' income category + initial balance transaction for credit card accounts."""
+    other_category = db.query(TrxCategory).filter(
+        TrxCategory.name == "Other",
+        TrxCategory.type == TrxCategoryType.INCOME,
+        TrxCategory.user_id == user_id,
+    ).first()
+    if not other_category:
+        other_category = TrxCategory(id=uuid7(), name="Other", type=TrxCategoryType.INCOME, user_id=user_id)
+        db.add(other_category)
+        db.commit()
+        db.refresh(other_category)
+
+    initial_tx = Transaction(
+        id=uuid7(),
+        transaction_date=datetime.now(UTC),
+        description="Initial credit card balance",
+        amount=account.limit,
+        transaction_type=TransactionType.INCOME,
+        account_id=account.id,
+        category_id=other_category.id,
+        user_id=user_id,
+    )
+    db.add(initial_tx)
+    db.commit()
+
 
 def prepare_deleted_account_info(account: TrxAccount) -> Dict[str, Any]:
     """

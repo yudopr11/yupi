@@ -1,18 +1,15 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Optional, List, TypeVar, Generic
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
 import uuid
 
-from app.models.cuan import TrxAccountType, TrxCategoryType, TransactionType, TrxAccount, TrxCategory
+from app.models.cuan import TrxAccountType, TrxCategoryType, TransactionType
 from app.schemas.common import DeletedItemInfo, DeleteResponse
-
-# Generic TypeVar for DeleteResponse
-T = TypeVar('T')
 
 # --- Account Schemas ---
 class TrxAccountBase(BaseModel):
-    name: str = Field(..., description="Name of the account")
+    name: str = Field(..., max_length=100, description="Name of the account")
     type: TrxAccountType = Field(..., description="Type of the account (bank_account, credit_card, other)")
     description: Optional[str] = Field(None, description="Optional description of the account")
     limit: Optional[Decimal] = Field(None, description="Credit limit for credit card accounts")
@@ -61,7 +58,7 @@ class TrxCategoryBase(BaseModel):
     """
     Base schema for transaction category with common fields
     """
-    name: str = Field(..., description="Name of the category")
+    name: str = Field(..., max_length=100, description="Name of the category")
     type: TrxCategoryType = Field(..., description="Type of the category (income, expense, or transfer)")
 
 class TrxCategoryCreate(TrxCategoryBase):

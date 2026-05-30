@@ -1,8 +1,6 @@
 """Tests for app/utils/blog_helpers.py."""
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # generate_slug

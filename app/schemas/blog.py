@@ -1,8 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from datetime import datetime
 from typing import Optional, List
-from .common import DeletedItemInfo, DeleteResponse
-from app.schemas.auth import UserBase
 import uuid
 
 class UserBase(BaseModel):
@@ -13,8 +11,8 @@ class UserBase(BaseModel):
     email: EmailStr = Field(..., description="User's email address")
 
 class PostBase(BaseModel):
-    title: str = Field(..., description="Post title")
-    content: str = Field(..., description="Post content in Markdown format")
+    title: str = Field(..., min_length=1, max_length=200, description="Post title")
+    content: str = Field(..., min_length=1, description="Post content in Markdown format")
     published: bool = Field(False, description="Is the post published?")
     tags: Optional[List[str]] = Field(None, description="List of tags")
     excerpt: Optional[str] = Field(None, description="A short excerpt of the post")
@@ -52,3 +50,4 @@ class PaginatedPostsResponse(BaseModel):
     has_more: bool
     limit: int
     skip: int
+    next_cursor: Optional[str] = None

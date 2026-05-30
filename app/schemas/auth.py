@@ -9,7 +9,7 @@ class UserBase(BaseModel):
     email: EmailStr = Field(..., description="User's email address")
 
 class UserCreate(UserBase):
-    password: str = Field(..., description="User's password")
+    password: str = Field(..., min_length=8, description="User's password")
     is_superuser: bool = Field(default=False, description="Whether user has superuser privileges")
 
 class UserResponse(UserBase):

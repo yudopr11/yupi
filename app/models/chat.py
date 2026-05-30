@@ -1,9 +1,10 @@
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, JSON
+from sqlalchemy import Column, String, Text, ForeignKey, DateTime, JSON, Index
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.utils.database import Base
-import enum, uuid
+import enum
+from app.utils.uuid import uuid7
 
 
 class MessageRole(str, enum.Enum):
@@ -23,7 +24,7 @@ class ToolCallStatus(str, enum.Enum):
 class Conversation(Base):
     __tablename__ = "chat_conversations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     title = Column(String, nullable=False, default="New Chat")
     user_id = Column(UUID(as_uuid=True), ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -35,8 +36,11 @@ class Conversation(Base):
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("ix_chat_messages_conversation_created", "conversation_id", "created_at"),
+    )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False)
     role = Column(String, nullable=False)  # user, assistant, system, tool
     content = Column(Text, nullable=False, default="")
@@ -50,7 +54,7 @@ class ChatMessage(Base):
 class ToolCall(Base):
     __tablename__ = "chat_tool_calls"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     message_id = Column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
     tool_name = Column(String, nullable=False)
     arguments = Column(JSON, nullable=True)
@@ -66,7 +70,7 @@ class ToolCall(Base):
 class UserSettings(Base):
     __tablename__ = "chat_user_settings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     user_id = Column(UUID(as_uuid=True), ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False, unique=True)
     mimo_api_key = Column(Text, nullable=True)
     mimo_base_url = Column(String, nullable=True)
