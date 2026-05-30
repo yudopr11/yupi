@@ -16,6 +16,7 @@ from app.utils.database import Base
 from app.models.auth import User
 from app.models.blog import Post
 from app.models.cuan import TrxAccount, TrxCategory, Transaction
+from app.models.file import FileUpload
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery
+from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery, File, Form, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, desc
 from typing import List, Optional
@@ -7,7 +7,8 @@ from datetime import datetime, UTC
 from decimal import Decimal
 
 from app.utils.database import get_db
-from app.utils.auth import get_current_user, get_non_guest_user
+from app.utils.auth import get_current_user, get_non_guest_superuser
+from app.utils.file_service import upload_file as upload_file_to_storage, mark_orphan, delete_file_from_storage
 from app.utils.cuan_helpers import (
     validate_account,
     validate_category,
@@ -50,7 +51,7 @@ router = APIRouter(
 # --- Account Endpoints ---
 
 @router.post("/accounts", status_code=status.HTTP_201_CREATED, response_model=TrxAccountResponse)
-def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Create a new financial account.
     For credit card accounts, an initial balance transaction is automatically created equal to the limit.
@@ -66,7 +67,7 @@ def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), cur
     return {"data": new_account, "message": "Account created successfully"}
 
 @router.put("/accounts/{id}", response_model=TrxAccountResponse)
-def update_account(id: uuid.UUID, account_update: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def update_account(id: uuid.UUID, account_update: TrxAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Update an existing financial account.
     """
@@ -98,7 +99,7 @@ def update_account(id: uuid.UUID, account_update: TrxAccountCreate, db: Session 
     return {"data": account, "message": "Account updated successfully"}
 
 @router.delete("/accounts/{id}", response_model=TrxDeleteAccountResponse)
-def delete_account(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def delete_account(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Delete a financial account and its associated transactions.
     """
@@ -152,7 +153,7 @@ def get_accounts(
 # --- Category Endpoints ---
 
 @router.post("/categories", status_code=status.HTTP_201_CREATED, response_model=TrxCategoryResponse)
-def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Create a new transaction category.
     """
@@ -163,7 +164,7 @@ def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), 
     return {"data": new_category, "message": "Category created successfully"}
 
 @router.put("/categories/{id}", response_model=TrxCategoryResponse)
-def update_category(id: uuid.UUID, category_update: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def update_category(id: uuid.UUID, category_update: TrxCategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Update an existing transaction category.
     """
@@ -175,7 +176,7 @@ def update_category(id: uuid.UUID, category_update: TrxCategoryCreate, db: Sessi
     return {"data": category, "message": "Category updated successfully"}
 
 @router.delete("/categories/{id}", response_model=TrxDeleteCategoryResponse)
-def delete_category(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def delete_category(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Delete a transaction category.
     """
@@ -195,15 +196,41 @@ def get_categories(category_type: Optional[str] = None, db: Session = Depends(ge
 # --- Transaction Endpoints ---
 
 @router.post("/transactions", status_code=status.HTTP_201_CREATED, response_model=TransactionResponse)
-def create_transaction(transaction: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def create_transaction(
+    transaction_date: str = Form(...),
+    description: str = Form(...),
+    amount: Decimal = Form(...),
+    transaction_type: str = Form(...),
+    account_id: str = Form(...),
+    category_id: Optional[str] = Form(None),
+    destination_account_id: Optional[str] = Form(None),
+    transfer_fee: Decimal = Form(default=Decimal("0.0")),
+    receipt: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Create a new transaction (income, expense, or transfer).
+    Accepts multipart form data with optional receipt file.
     """
-    account = validate_account(db, transaction.account_id, current_user.id)
-    category = validate_category(db, transaction.category_id, current_user.id)
-    validate_transaction_category_match(transaction.transaction_type, category)
+    # Parse form fields
+    tx_data = {
+        "transaction_date": datetime.fromisoformat(transaction_date),
+        "description": description,
+        "amount": amount,
+        "transaction_type": transaction_type,
+        "account_id": uuid.UUID(account_id),
+        "category_id": uuid.UUID(category_id) if category_id else None,
+        "destination_account_id": uuid.UUID(destination_account_id) if destination_account_id else None,
+        "transfer_fee": transfer_fee,
+    }
 
-    if transaction.transaction_type == TransactionType.EXPENSE and account.type == TrxAccountType.CREDIT_CARD:
+    tx = TransactionCreate(**tx_data)
+    account = validate_account(db, tx.account_id, current_user.id)
+    category = validate_category(db, tx.category_id, current_user.id)
+    validate_transaction_category_match(tx.transaction_type, category)
+
+    if tx.transaction_type == TransactionType.EXPENSE and account.type == TrxAccountType.CREDIT_CARD:
         balance_details = calculate_account_balance(db, account.id, current_user.id)
         if balance_details["balance"] <= 0:
             raise HTTPException(
@@ -212,64 +239,116 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
             )
 
     validate_transfer(
-        transaction.transaction_type, transaction.destination_account_id, transaction.account_id,
-        transaction.transfer_fee, db, current_user.id
+        tx.transaction_type, tx.destination_account_id, tx.account_id,
+        tx.transfer_fee, db, current_user.id
     )
 
-    new_transaction = prepare_transaction_for_db(transaction.model_dump(), current_user.id)
+    new_transaction = prepare_transaction_for_db(tx.model_dump(), current_user.id)
+
+    # Handle receipt upload
+    if receipt and receipt.filename:
+        file_upload = upload_file_to_storage(db, receipt, current_user.id, prefix="receipts")
+        new_transaction.receipt_file_id = file_upload.id
+
     db.add(new_transaction)
     db.commit()
     db.refresh(new_transaction)
     return {"data": new_transaction, "message": "Transaction created successfully"}
 
 @router.put("/transactions/{id}", response_model=TransactionResponse)
-def update_transaction(id: uuid.UUID, transaction_update: TransactionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def update_transaction(
+    id: uuid.UUID,
+    transaction_date: str = Form(...),
+    description: str = Form(...),
+    amount: Decimal = Form(...),
+    transaction_type: str = Form(...),
+    account_id: str = Form(...),
+    category_id: Optional[str] = Form(None),
+    destination_account_id: Optional[str] = Form(None),
+    transfer_fee: Decimal = Form(default=Decimal("0.0")),
+    receipt: Optional[UploadFile] = File(None),
+    remove_receipt: bool = Form(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
-    Update an existing transaction.
+    Update an existing transaction. Accepts multipart form data with optional receipt.
+    Set remove_receipt=true to remove existing receipt without uploading a new one.
     """
     transaction_query = db.query(Transaction).filter(Transaction.id == id, Transaction.user_id == current_user.id)
     existing_transaction = transaction_query.first()
     if not existing_transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Transaction with id {id} not found")
 
-    account = validate_account(db, transaction_update.account_id, current_user.id)
-    category = validate_category(db, transaction_update.category_id, current_user.id)
-    validate_transaction_category_match(transaction_update.transaction_type, category)
+    tx_data = {
+        "transaction_date": datetime.fromisoformat(transaction_date),
+        "description": description,
+        "amount": amount,
+        "transaction_type": transaction_type,
+        "account_id": uuid.UUID(account_id),
+        "category_id": uuid.UUID(category_id) if category_id else None,
+        "destination_account_id": uuid.UUID(destination_account_id) if destination_account_id else None,
+        "transfer_fee": transfer_fee,
+    }
+
+    tx = TransactionCreate(**tx_data)
+    account = validate_account(db, tx.account_id, current_user.id)
+    category = validate_category(db, tx.category_id, current_user.id)
+    validate_transaction_category_match(tx.transaction_type, category)
 
     if (
-        transaction_update.transaction_type == TransactionType.EXPENSE and
+        tx.transaction_type == TransactionType.EXPENSE and
         account.type == TrxAccountType.CREDIT_CARD and
-        (existing_transaction.transaction_type != TransactionType.EXPENSE or transaction_update.amount > existing_transaction.amount)
+        (existing_transaction.transaction_type != TransactionType.EXPENSE or tx.amount > existing_transaction.amount)
     ):
         balance_details = calculate_account_balance(db, account.id, current_user.id)
         adjusted_balance = balance_details["balance"]
-        if existing_transaction.transaction_type == TransactionType.EXPENSE and existing_transaction.account_id == transaction_update.account_id:
+        if existing_transaction.transaction_type == TransactionType.EXPENSE and existing_transaction.account_id == tx.account_id:
             adjusted_balance += existing_transaction.amount
-        if adjusted_balance - transaction_update.amount < 0:
+        if adjusted_balance - tx.amount < 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Insufficient credit card balance for this update. Please top up the account."
             )
 
     validate_transfer(
-        transaction_update.transaction_type, transaction_update.destination_account_id, transaction_update.account_id,
-        transaction_update.transfer_fee, db, current_user.id
+        tx.transaction_type, tx.destination_account_id, tx.account_id,
+        tx.transfer_fee, db, current_user.id
     )
 
-    transaction_query.update(transaction_update.model_dump(), synchronize_session=False)
+    # Handle receipt changes
+    if remove_receipt and existing_transaction.receipt_file_id:
+        mark_orphan(db, existing_transaction.receipt_file_id)
+        existing_transaction.receipt_file_id = None
+
+    if receipt and receipt.filename:
+        # Mark old receipt as orphan if replacing
+        if existing_transaction.receipt_file_id:
+            mark_orphan(db, existing_transaction.receipt_file_id)
+        file_upload = upload_file_to_storage(db, receipt, current_user.id, prefix="receipts")
+        existing_transaction.receipt_file_id = file_upload.id
+
+    # Update fields
+    for key, value in tx_data.items():
+        setattr(existing_transaction, key, value)
+
     db.commit()
     db.refresh(existing_transaction)
     return {"data": existing_transaction, "message": "Transaction updated successfully"}
 
 @router.delete("/transactions/{id}", response_model=DeleteTransactionResponse)
-def delete_transaction(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_non_guest_user)):
+def delete_transaction(id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Delete a transaction.
+    Delete a transaction. Associated receipt is marked as orphan.
     """
     transaction_query = db.query(Transaction).filter(Transaction.id == id, Transaction.user_id == current_user.id)
     transaction = transaction_query.first()
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Transaction with id {id} not found")
+
+    # Mark receipt as orphan before deleting transaction
+    if transaction.receipt_file_id:
+        mark_orphan(db, transaction.receipt_file_id)
 
     deleted_info = prepare_deleted_transaction_info(transaction)
     transaction_query.delete(synchronize_session=False)
@@ -515,4 +594,65 @@ def get_account_summary(db: Session = Depends(get_db), current_user: User = Depe
         "credit_utilization": credit_utilization,
         "by_account_type": balances_by_type,
         "accounts": [item for item, _ in account_summaries]
+    }
+
+
+# --- Guest Cleanup ---
+
+@router.post("/cleanup-guest-data")
+def cleanup_guest_data(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_non_guest_superuser),
+):
+    """
+    Delete guest users' transactions older than N days (default 30).
+    Also marks associated receipt files as orphan.
+    Superuser only.
+    """
+    from datetime import timedelta
+    from app.models.auth import User as UserModel
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    # Find all guest users
+    guest_users = db.query(UserModel).filter(UserModel.username.like("guest%")).all()
+    guest_ids = [u.id for u in guest_users]
+
+    if not guest_ids:
+        return {"message": "No guest users found", "deleted_transactions": 0, "orphaned_files": 0}
+
+    # Find old transactions for guest users
+    old_transactions = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id.in_(guest_ids),
+            Transaction.created_at < cutoff,
+        )
+        .all()
+    )
+
+    deleted_count = len(old_transactions)
+    orphaned_files = 0
+
+    # Collect receipt files to delete
+    receipt_files = []
+    for tx in old_transactions:
+        if tx.receipt_file_id:
+            file_upload = mark_orphan(db, tx.receipt_file_id)
+            if file_upload:
+                receipt_files.append(file_upload)
+            orphaned_files += 1
+        db.delete(tx)
+
+    db.commit()
+
+    # Delete orphaned files from storage
+    for f in receipt_files:
+        delete_file_from_storage(f.storage_key, f.bucket)
+
+    return {
+        "message": f"Cleaned up {deleted_count} guest transactions older than {days} days",
+        "deleted_transactions": deleted_count,
+        "orphaned_files": orphaned_files,
     }

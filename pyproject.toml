@@ -76,6 +76,7 @@ dependencies = [
     "anthropic>=0.104.1",
     "duckduckgo-search>=8.1.1",
     "uuid-utils>=0.16.0",
+    "boto3>=1.43.18",
 ]
 
 [dependency-groups]

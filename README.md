@@ -23,8 +23,17 @@ A FastAPI-based API service providing blog management, bill splitting analysis, 
   - Account number field per account
   - Income / expense / transfer transactions with category assignment
   - Transfer fee support
+  - Receipt upload (images/PDF) stored in RustFS (S3-compatible)
+  - Cursor-based pagination for transaction lists
   - Financial statistics: summary, category distribution, time-series trends, account summary with credit utilization
   - Year-based balance history
+  - Guest data cleanup endpoint (superuser only)
+
+- **File Upload Service**
+  - Generic S3-compatible file storage via boto3 + RustFS
+  - Upload, download, soft-delete with orphan tracking
+  - `file_uploads` table tracks all files with user association
+  - Orphan cleanup endpoint for admin
 
 - **Bill Splitting (Ngakak)**
   - GPT-4 Vision receipt parsing
@@ -53,7 +62,9 @@ A FastAPI-based API service providing blog management, bill splitting analysis, 
 | ORM / Migrations | SQLAlchemy 2.0 + Alembic |
 | Auth | PyJWT (HS256) + bcrypt |
 | AI | OpenAI (GPT-4o, o3-mini, text-embedding-3-small) |
+| File Storage | boto3 + RustFS (S3-compatible) |
 | Email | fastapi-mail + aiosmtplib (async SMTP) |
+| ID Generation | uuid-utils (Rust-backed UUIDv7) |
 | Packaging | uv |
 | Deployment | Railway |
 | CI/CD | GitHub Actions |
@@ -63,6 +74,7 @@ A FastAPI-based API service providing blog management, bill splitting analysis, 
 - Python 3.12+
 - PostgreSQL with pgvector extension
 - OpenAI API key
+- RustFS or any S3-compatible storage (for file uploads)
 - uv (`pip install uv`)
 
 ## Installation
@@ -90,6 +102,11 @@ alembic upgrade head
 | `SUPERUSER_EMAIL` | — | Auto-created admin email |
 | `SUPERUSER_PASSWORD` | — | Auto-created admin password |
 | `COOKIE_SECURE` | `False` | `True` for HTTPS production |
+| `RUSTFS_ENDPOINT` | `http://localhost:9000` | RustFS/S3 endpoint URL |
+| `RUSTFS_ACCESS_KEY` | — | RustFS access key |
+| `RUSTFS_SECRET_KEY` | — | RustFS secret key |
+| `RUSTFS_BUCKET` | `yupi-uploads` | S3 bucket name |
+| `RUSTFS_REGION` | `us-east-1` | S3 region |
 | `MAIL_USERNAME` | — | Gmail address |
 | `MAIL_PASSWORD` | — | Gmail App Password |
 | `MAIL_FROM` | — | From address for emails |
@@ -166,12 +183,15 @@ Query params for `GET /blog`: `skip`, `limit`, `search`, `tag`, `published_statu
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/cuan/transactions` | Create income / expense / transfer |
-| GET | `/cuan/transactions` | Paginated list with filters |
-| PUT | `/cuan/transactions/{id}` | Update |
-| DELETE | `/cuan/transactions/{id}` | Delete |
+| POST | `/cuan/transactions` | Create (multipart form, optional receipt file) |
+| GET | `/cuan/transactions` | Paginated list with filters + cursor pagination |
+| PUT | `/cuan/transactions/{id}` | Update (multipart form, optional receipt) |
+| DELETE | `/cuan/transactions/{id}` | Delete (marks receipt as orphan) |
+| POST | `/cuan/cleanup-guest-data` | Delete guest transactions older than N days (superuser) |
 
-Filters for `GET /cuan/transactions`: `account_name`, `category_name`, `transaction_type`, `start_date`, `end_date`, `date_filter_type` (`day`/`week`/`month`/`year`/`all`), `order_by`, `sort_order`, `limit`, `skip`.
+Filters for `GET /cuan/transactions`: `account_name`, `category_name`, `transaction_type`, `start_date`, `end_date`, `date_filter_type` (`day`/`week`/`month`/`year`/`all`), `order_by`, `sort_order`, `limit`, `skip`, `cursor`.
+
+Transaction create/update accepts `multipart/form-data` with optional `receipt` file (image/PDF). Response includes `receipt_file_id` and `receipt_url`.
 
 **Statistics**
 
@@ -181,6 +201,14 @@ Filters for `GET /cuan/transactions`: `account_name`, `category_name`, `transact
 | GET | `/cuan/statistics/by-category` | Category breakdown with percentages |
 | GET | `/cuan/statistics/trends` | Time-series grouped by interval |
 | GET | `/cuan/statistics/account-summary` | All accounts + credit utilization |
+
+### Files (`/files`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/files/{id}` | Yes | Download file (owner only) |
+| DELETE | `/files/{id}` | Yes | Mark file as orphan (soft delete) |
+| POST | `/files/cleanup-orphans` | Superuser | Delete all orphaned files from storage + DB |
 
 ### Bill Splitting (`/ngakak`)
 

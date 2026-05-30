@@ -118,6 +118,8 @@ class TransactionResponseData(TransactionBase):
     account: TrxAccountResponseData = Field(..., description="Account details where the transaction occurred")
     category: Optional[TrxCategoryResponseData] = Field(None, description="Category details for the transaction (optional)")
     destination_account: Optional[TrxAccountResponseData] = Field(None, description="Destination account details for transfer transactions (optional)")
+    receipt_file_id: Optional[uuid.UUID] = Field(None, description="Receipt file ID")
+    receipt_url: Optional[str] = Field(None, description="Receipt download URL")
     created_at: datetime = Field(..., description="Timestamp when the transaction was created")
     updated_at: datetime = Field(..., description="Timestamp when the transaction was last updated")
 

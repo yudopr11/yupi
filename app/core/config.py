@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     MIMO_BASE_URL: str = "https://token-plan-sgp.xiaomimimo.com/anthropic"
     MIMO_MODEL: str = "mimo-v2.5"
 
+    # RustFS (S3-compatible) settings
+    RUSTFS_ENDPOINT: str = "http://localhost:9000"
+    RUSTFS_ACCESS_KEY: str = ""
+    RUSTFS_SECRET_KEY: str = ""
+    RUSTFS_BUCKET: str = "yupi-uploads"
+    RUSTFS_REGION: str = "us-east-1"
+
     # Email settings - Gmail
     MAIL_USERNAME: str = "your.email@gmail.com"  # Replace with your Gmail address
     MAIL_PASSWORD: str = "your-app-password"     # Replace with your App Password

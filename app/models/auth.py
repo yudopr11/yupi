@@ -20,6 +20,7 @@ class User(Base):
     trx_accounts = relationship("TrxAccount", back_populates="user")
     trx_categories = relationship("TrxCategory", back_populates="user")
     transactions = relationship("Transaction", back_populates="user")
+    file_uploads = relationship("FileUpload", back_populates="user")
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, email={self.email})>"

@@ -8,7 +8,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.core.config import settings
 from app.mcp.server import create_mcp_asgi_app, mcp
 from app.middleware.cors import init_cors
-from app.routers import auth, blog, cuan, ngakak, chat
+from app.routers import auth, blog, cuan, ngakak, chat, files
 from app.utils.database import get_db
 from app.utils.mcp_client import mcp_pool
 from app.utils.superuser import create_superuser
@@ -108,6 +108,7 @@ app.include_router(blog.router)
 app.include_router(cuan.router)
 app.include_router(ngakak.router)
 app.include_router(chat.router)
+app.include_router(files.router)
 
 
 @app.get("/")

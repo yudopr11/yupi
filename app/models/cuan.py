@@ -92,11 +92,19 @@ class Transaction(Base):
     category_id = Column(UUID(as_uuid=True), ForeignKey("cuan_categories.id", ondelete="SET NULL"), nullable=True)
     destination_account_id = Column(UUID(as_uuid=True), ForeignKey("cuan_accounts.id", ondelete="SET NULL"), nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False)
-    
+    receipt_file_id = Column(UUID(as_uuid=True), ForeignKey("file_uploads.id", ondelete="SET NULL"), nullable=True)
+
     account = relationship("TrxAccount", foreign_keys=[account_id])
     category = relationship("TrxCategory")
     destination_account = relationship("TrxAccount", foreign_keys=[destination_account_id])
     user = relationship("User", back_populates="transactions")
+    receipt_file = relationship("FileUpload", foreign_keys=[receipt_file_id])
+
+    @property
+    def receipt_url(self):
+        if self.receipt_file_id:
+            return f"/files/{self.receipt_file_id}"
+        return None
     
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
