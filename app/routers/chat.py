@@ -205,7 +205,9 @@ async def chat(
                     yield chunk
         except Exception as e:
             db.rollback()
-            yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+            import logging
+            logging.exception("Chat stream error")
+            yield f"event: error\ndata: {json.dumps({'detail': 'An internal error occurred'})}\n\n"
 
     return StreamingResponse(
         event_stream(),

@@ -11,12 +11,15 @@ from app.models.auth import User
 from app.mcp.context import _current_db_var, _current_user_var
 from app.mcp.tools import (
     analyze_bill_impl,
+    cleanup_guest_data_impl,
+    cleanup_orphans_impl,
     create_account_impl,
     create_category_impl,
     create_post_impl,
     create_transaction_impl,
     delete_account_impl,
     delete_category_impl,
+    delete_file_impl,
     delete_post_impl,
     delete_transaction_impl,
     delete_user_impl,
@@ -30,6 +33,7 @@ from app.mcp.tools import (
     list_accounts_impl,
     list_all_users_impl,
     list_categories_impl,
+    list_files_impl,
     list_posts_impl,
     list_transactions_impl,
     register_user_impl,
@@ -83,13 +87,14 @@ async def delete_user(user_id: str) -> dict:
 async def list_posts(
     skip: int = 0,
     limit: int = 10,
+    cursor: Optional[str] = None,
     search: Optional[str] = None,
     tag: Optional[str] = None,
     published_status: str = "published",
     use_rag: bool = False,
 ) -> dict:
-    """List blog posts with optional filters. published_status: published|unpublished|all."""
-    return await list_posts_impl(skip, limit, search, tag, published_status, use_rag)
+    """List blog posts with optional filters. published_status: published|unpublished|all. cursor = ISO datetime from next_cursor."""
+    return await list_posts_impl(skip, limit, cursor, search, tag, published_status, use_rag)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -209,12 +214,13 @@ async def list_transactions(
     sort_order: str = "desc",
     limit: int = 10,
     skip: int = 0,
+    cursor: Optional[str] = None,
 ) -> dict:
-    """List transactions with filters. transaction_type: income|expense|transfer."""
+    """List transactions with filters. Supports cursor pagination (cursor = ISO datetime from next_cursor). transaction_type: income|expense|transfer."""
     return await list_transactions_impl(
         account_name, category_name, transaction_type,
         start_date, end_date, date_filter_type,
-        timezone, order_by, sort_order, limit, skip,
+        timezone, order_by, sort_order, limit, skip, cursor,
     )
 
 
@@ -311,6 +317,34 @@ async def analyze_bill(
 ) -> dict:
     """Analyze a bill image and split costs. image_path: absolute path (JPEG/PNG/WebP, max 5MB)."""
     return await analyze_bill_impl(image_path, description, image_description)
+
+
+# ---------------------------------------------------------------------------
+# File tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def list_files(limit: int = 50) -> list:
+    """List current user's uploaded files (receipts, etc)."""
+    return await list_files_impl(limit)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+async def delete_file(file_id: str) -> dict:
+    """Mark a file as orphan (soft delete). Owner or superuser only."""
+    return await delete_file_impl(file_id)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+async def cleanup_orphaned_files() -> dict:
+    """Delete all orphaned files from storage and DB. Superuser only."""
+    return await cleanup_orphans_impl()
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+async def cleanup_guest_data(days: int = 30) -> dict:
+    """Delete guest users' transactions older than N days. Superuser only."""
+    return await cleanup_guest_data_impl(days)
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+import re
 import uuid
 
 from app.utils.database import get_db
@@ -34,7 +35,7 @@ def get_file(
     return StreamingResponse(
         body,
         media_type=file_upload.content_type,
-        headers={"Content-Disposition": f'inline; filename="{file_upload.original_filename}"'},
+        headers={"Content-Disposition": f'inline; filename="{re.sub(r"[^\w.\-]", "_", file_upload.original_filename)}"'},
     )
 
 
@@ -52,6 +53,7 @@ def delete_file(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     mark_orphan(db, file_id)
+    db.commit()
     return {"message": "File marked for deletion", "file_id": str(file_id)}
 
 

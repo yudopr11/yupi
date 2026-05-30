@@ -63,13 +63,18 @@ def upload_file(
     storage_key = f"uploads/{user_id}/{prefix}/{file_id}{ext}"
     bucket = settings.RUSTFS_BUCKET
 
-    # Read file content
-    content = file.file.read()
-    if len(content) > MAX_FILE_SIZE:
+    # Check file size before reading into memory
+    file.file.seek(0, 2)  # seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # seek back to start
+    if file_size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)}MB"
         )
+
+    # Read file content
+    content = file.file.read()
 
     # Upload to RustFS
     s3 = get_s3_client()
@@ -116,12 +121,11 @@ def delete_file_from_storage(storage_key: str, bucket: str) -> None:
 
 
 def mark_orphan(db: Session, file_upload_id: uuid.UUID) -> Optional[FileUpload]:
-    """Mark a file as orphaned."""
+    """Mark a file as orphaned. Caller must commit."""
     file_upload = db.query(FileUpload).filter(FileUpload.id == file_upload_id).first()
     if file_upload:
         file_upload.is_orphan = True
         file_upload.deleted_at = datetime.now(timezone.utc)
-        db.commit()
     return file_upload
 
 

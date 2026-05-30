@@ -385,9 +385,10 @@ async def update_post(
         if need_tags and generated_content["tags"]:
             post_data["tags"] = generated_content["tags"]
     
-    # Update all fields
+    # Update all fields, preserving existing values when None
     for key, value in post_data.items():
-        setattr(post, key, value)
+        if value is not None or key in ("published",):
+            setattr(post, key, value)
     
     # Update slug if title changed
     if post_update.title:

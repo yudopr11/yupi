@@ -1,7 +1,6 @@
 """MCP tool implementations — call DB/services directly, no HTTP."""
 import mimetypes
 import uuid
-from app.utils.uuid import uuid7
 from datetime import datetime, UTC
 from decimal import Decimal
 from pathlib import Path
@@ -22,6 +21,7 @@ from app.models.cuan import (
     TrxAccountType,
     TrxCategory,
 )
+from app.models.file import FileUpload
 from app.utils.auth import get_password_hash
 from app.utils.blog_helpers import (
     calculate_reading_time,
@@ -59,6 +59,19 @@ def _db() -> Session:
     return _current_db_var.get()
 
 
+def _require_superuser():
+    """Match get_non_guest_superuser: superuser + not guest."""
+    user = _user()
+    if not user.is_superuser or user.username == "guest":
+        raise PermissionError("Superuser required")
+
+
+def _require_not_guest():
+    """Match get_non_guest_user: authenticated + not guest."""
+    if _user().username == "guest":
+        raise PermissionError("Guest users not allowed")
+
+
 def _serialize_user(u: User) -> dict:
     return {
         "id": str(u.id),
@@ -71,13 +84,13 @@ def _serialize_user(u: User) -> dict:
 
 
 def _serialize_account(a) -> dict:
-    balance = a.get("balance") if isinstance(a, dict) else getattr(a, "balance", None)
     if isinstance(a, dict):
         return {
             "id": str(a["id"]),
             "name": a["name"],
             "type": a["type"].value if hasattr(a["type"], "value") else a["type"],
             "description": a.get("description"),
+            "account_number": a.get("account_number"),
             "limit": float(a["limit"]) if a.get("limit") is not None else None,
             "balance": float(a["balance"]) if a.get("balance") is not None else None,
             "total_income": float(a.get("total_income", 0)),
@@ -118,7 +131,9 @@ def _serialize_transaction(t: Transaction) -> dict:
         "account_id": str(t.account_id),
         "category_id": str(t.category_id) if t.category_id else None,
         "destination_account_id": str(t.destination_account_id) if t.destination_account_id else None,
-        "transfer_fee": float(t.transfer_fee) if t.transfer_fee else None,
+        "transfer_fee": float(t.transfer_fee) if t.transfer_fee is not None else None,
+        "receipt_file_id": str(t.receipt_file_id) if t.receipt_file_id else None,
+        "receipt_url": t.receipt_url,
         "user_id": str(t.user_id),
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
@@ -150,8 +165,7 @@ async def get_current_user_impl() -> dict:
 
 
 async def list_all_users_impl() -> list:
-    if not _user().is_superuser:
-        raise PermissionError("Superuser required")
+    _require_superuser()
     db = _db()
     users = db.query(User).order_by(User.created_at.desc()).all()
     return [_serialize_user(u) for u in users]
@@ -163,8 +177,7 @@ async def register_user_impl(
     password: str,
     is_superuser: bool = False,
 ) -> dict:
-    if not _user().is_superuser:
-        raise PermissionError("Superuser required")
+    _require_superuser()
     db = _db()
     if db.query(User).filter(User.username == username).first():
         raise ValueError("Username already taken")
@@ -183,8 +196,7 @@ async def register_user_impl(
 
 
 async def delete_user_impl(user_id: str) -> dict:
-    if not _user().is_superuser:
-        raise PermissionError("Superuser required")
+    _require_superuser()
     db = _db()
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -204,12 +216,63 @@ async def delete_user_impl(user_id: str) -> dict:
 async def list_posts_impl(
     skip: int = 0,
     limit: int = 10,
+    cursor: Optional[str] = None,
     search: Optional[str] = None,
     tag: Optional[str] = None,
     published_status: str = "published",
     use_rag: bool = False,
 ) -> dict:
     db = _db()
+
+    # RAG semantic search path
+    if search and use_rag:
+        is_published_only = published_status == "published"
+        similarity_threshold = 0.3
+        vector_results = search_posts_by_embedding(
+            query=search, db=db, limit=100,
+            similarity_threshold=similarity_threshold,
+            published_only=is_published_only,
+        )
+
+        # Filter unpublished if requested
+        if published_status == "unpublished":
+            vector_results = [p for p in vector_results if not p["published"]]
+
+        # Filter by tag (case-insensitive)
+        if tag:
+            vector_results = [
+                p for p in vector_results
+                if p["tags"] and any(t.lower() == tag.lower() for t in p["tags"])
+            ]
+
+        total_count = len(vector_results)
+
+        # Cursor pagination
+        next_cursor = None
+        if cursor:
+            from datetime import datetime as dt
+            cursor_dt = dt.fromisoformat(cursor)
+            vector_results = [p for p in vector_results if p["created_at"] and p["created_at"] < cursor_dt]
+            skip = 0
+
+        paginated = vector_results[:limit + 1]
+        has_more = len(paginated) > limit
+        if has_more:
+            paginated = paginated[:limit]
+            last = paginated[-1]
+            created = last.get("created_at")
+            next_cursor = created.isoformat() if hasattr(created, "isoformat") else (created if isinstance(created, str) else None)
+
+        return {
+            "items": paginated,
+            "total_count": total_count,
+            "has_more": has_more,
+            "limit": limit,
+            "skip": skip,
+            "next_cursor": next_cursor,
+        }
+
+    # SQL search path
     query = db.query(Post)
 
     if published_status == "published":
@@ -217,27 +280,42 @@ async def list_posts_impl(
     elif published_status == "unpublished":
         query = query.filter(Post.published == False)
 
-    if tag:
-        query = query.filter(Post.tags.contains([tag]))
-
-    if search and use_rag:
-        posts = search_posts_by_embedding(query=search, db=db, limit=limit, published_only=(published_status == "published"))
-        return {"data": [_serialize_post(p) for p in posts], "total_count": len(posts), "has_more": False, "skip": skip, "limit": limit}
-
     if search:
         query = query.filter(
-            or_(Post.title.ilike(f"%{search}%"), Post.content.ilike(f"%{search}%"), Post.excerpt.ilike(f"%{search}%"))
+            or_(
+                Post.title.ilike(f"%{search}%"),
+                Post.excerpt.ilike(f"%{search}%"),
+                Post.content.ilike(f"%{search}%"),
+                func.array_to_string(Post.tags, ',').ilike(f"%{search}%"),
+            )
         )
 
+    if tag:
+        query = query.filter(func.lower(func.array_to_string(Post.tags, ',', '')).contains(func.lower(tag)))
+
     total = query.count()
+
+    # Cursor pagination (cursor replaces skip)
+    next_cursor = None
+    if cursor:
+        from datetime import datetime as dt
+        cursor_dt = dt.fromisoformat(cursor)
+        query = query.filter(Post.created_at < cursor_dt)
+        skip = 0
+
     posts = query.order_by(Post.created_at.desc()).offset(skip).limit(limit + 1).all()
     has_more = len(posts) > limit
+    if has_more:
+        posts = posts[:limit]
+        next_cursor = posts[-1].created_at.isoformat() if posts else None
+
     return {
-        "data": [_serialize_post(p) for p in posts[:limit]],
+        "items": [_serialize_post(p) for p in posts],
         "total_count": total,
         "has_more": has_more,
-        "skip": skip,
         "limit": limit,
+        "skip": skip,
+        "next_cursor": next_cursor,
     }
 
 
@@ -256,37 +334,51 @@ async def create_post_impl(
     tags: Optional[list] = None,
     excerpt: Optional[str] = None,
 ) -> dict:
-    user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot create posts")
+    _require_superuser()
     db = _db()
 
-    generated = generate_post_content(title, content, existing_tags=tags, need_excerpt=(excerpt is None))
-    final_tags = tags if tags is not None else generated.get("tags", [])
-    final_excerpt = excerpt if excerpt is not None else generated.get("excerpt", "")
+    need_excerpt = not excerpt or excerpt.strip() == ""
+    need_tags = not tags or len(tags) == 0
 
-    slug = generate_slug(title)
-    existing = db.query(Post).filter(Post.slug == slug).first()
-    if existing:
-        slug = f"{slug}-{uuid7().hex[:6]}"
+    existing_tags = []
+    if need_tags:
+        tag_results = db.query(Post.tags).all()
+        flat_tags = []
+        for tags_list in tag_results:
+            if tags_list[0]:
+                flat_tags.extend(tags_list[0])
+        existing_tags = list(set(flat_tags))
+
+    generated = generate_post_content(
+        title, content,
+        existing_tags=existing_tags,
+        need_excerpt=need_excerpt,
+        need_tags=need_tags,
+    )
+    if need_tags and generated.get("tags"):
+        tags = generated["tags"]
+    final_tags = tags if tags is not None else generated.get("tags", [])
+    final_excerpt = excerpt if not need_excerpt else generated.get("excerpt", "")
 
     post = Post(
-        id=uuid7(),
         title=title,
-        slug=slug,
+        slug=generate_slug(title),
         content=content,
         excerpt=final_excerpt,
         tags=final_tags,
         published=published,
         reading_time=calculate_reading_time(content),
-        user_id=user.id,
+        user_id=_user().id,
     )
     db.add(post)
     db.commit()
     db.refresh(post)
-    post.embedding = generate_post_embedding(post.title, post.excerpt)
-    db.commit()
-    db.refresh(post)
+
+    if post.excerpt:
+        post.embedding = generate_post_embedding(post.title, post.excerpt)
+        db.commit()
+        db.refresh(post)
+
     return _serialize_post(post)
 
 
@@ -298,43 +390,67 @@ async def update_post_impl(
     tags: Optional[list] = None,
     excerpt: Optional[str] = None,
 ) -> dict:
-    user = _user()
+    _require_superuser()
     db = _db()
     post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise LookupError(f"Post {post_id} not found")
-    if str(post.user_id) != str(user.id) and not user.is_superuser:
-        raise PermissionError("Only the author or superuser can update this post")
+    _require_superuser()
 
-    generated = generate_post_content(title, content, existing_tags=tags, need_excerpt=(excerpt is None), need_tags=(tags is None))
-    post.title = title
-    post.content = content
-    post.published = published
-    post.tags = tags if tags is not None else generated.get("tags", [])
-    post.excerpt = excerpt if excerpt is not None else generated.get("excerpt", "")
-    post.reading_time = calculate_reading_time(content)
+    need_excerpt = not excerpt or excerpt.strip() == ""
+    need_tags = not tags or len(tags) == 0
 
-    slug = generate_slug(title)
-    existing = db.query(Post).filter(Post.slug == slug, Post.id != post.id).first()
-    post.slug = f"{slug}-{uuid7().hex[:6]}" if existing else slug
+    existing_tags = []
+    if need_tags:
+        tag_results = db.query(Post.tags).all()
+        flat_tags = []
+        for tags_list in tag_results:
+            if tags_list[0]:
+                flat_tags.extend(tags_list[0])
+        existing_tags = list(set(flat_tags))
 
-    db.commit()
-    db.refresh(post)
-    post.embedding = generate_post_embedding(post.title, post.excerpt)
+    if need_excerpt or need_tags:
+        generated = generate_post_content(
+            title, content,
+            existing_tags=existing_tags,
+            need_excerpt=need_excerpt,
+            need_tags=need_tags,
+        )
+        if need_excerpt and generated.get("excerpt"):
+            excerpt = generated["excerpt"]
+        if need_tags and generated.get("tags"):
+            tags = generated["tags"]
+
+    # Update all fields
+    post_data = {
+        "title": title,
+        "content": content,
+        "published": published,
+        "tags": tags if tags is not None else post.tags,
+        "excerpt": excerpt if excerpt is not None else post.excerpt,
+    }
+    for key, value in post_data.items():
+        setattr(post, key, value)
+
+    if title:
+        post.slug = generate_slug(title)
+    if content:
+        post.reading_time = calculate_reading_time(content)
+    if title or excerpt is not None:
+        post.embedding = generate_post_embedding(post.title, post.excerpt)
+
     db.commit()
     db.refresh(post)
     return _serialize_post(post)
 
 
 async def delete_post_impl(post_id: str) -> dict:
-    user = _user()
-    if not user.is_superuser:
-        raise PermissionError("Superuser required")
+    _require_superuser()
     db = _db()
     post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise LookupError(f"Post {post_id} not found")
-    info = {"id": str(post.id), "title": post.title}
+    info = {"id": str(post.id), "uuid": str(post.id), "title": post.title}
     db.delete(post)
     db.commit()
     return {"message": f"Post {post_id} deleted", "deleted_item": info}
@@ -373,8 +489,6 @@ async def create_account_impl(
     account_number: Optional[str] = None,
 ) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot create accounts")
     db = _db()
     data = {"name": name, "type": type, "description": description, "limit": limit, "account_number": account_number}
     account = prepare_account_for_db(data, user.id)
@@ -397,8 +511,6 @@ async def update_account_impl(
     account_number: Optional[str] = None,
 ) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot update accounts")
     db = _db()
     account = validate_account(db, uuid.UUID(account_id), user.id)
     if type == TrxAccountType.CREDIT_CARD.value and limit is None:
@@ -417,8 +529,6 @@ async def update_account_impl(
 
 async def delete_account_impl(account_id: str) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot delete accounts")
     db = _db()
     account = validate_account(db, uuid.UUID(account_id), user.id)
     deleted_info = prepare_deleted_account_info(account)
@@ -440,8 +550,6 @@ async def list_categories_impl(category_type: Optional[str] = None) -> list:
 
 async def create_category_impl(name: str, type: str) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot create categories")
     db = _db()
     cat = prepare_category_for_db({"name": name, "type": type}, user.id)
     db.add(cat)
@@ -452,8 +560,6 @@ async def create_category_impl(name: str, type: str) -> dict:
 
 async def update_category_impl(category_id: str, name: str, type: str) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot update categories")
     db = _db()
     cat = validate_category(db, uuid.UUID(category_id), user.id)
     cat.name = name
@@ -465,8 +571,6 @@ async def update_category_impl(category_id: str, name: str, type: str) -> dict:
 
 async def delete_category_impl(category_id: str) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot delete categories")
     db = _db()
     cat = validate_category(db, uuid.UUID(category_id), user.id)
     deleted_info = prepare_deleted_category_info(cat)
@@ -491,6 +595,7 @@ async def list_transactions_impl(
     sort_order: str = "desc",
     limit: int = 10,
     skip: int = 0,
+    cursor: Optional[str] = None,
 ) -> dict:
     db = _db()
     user = _user()
@@ -511,14 +616,30 @@ async def list_transactions_impl(
         return_query=True,
     )
     total = query.count()
+
+    # Cursor-based pagination (cursor replaces skip)
+    next_cursor = None
+    if cursor:
+        cursor_dt = datetime.fromisoformat(cursor)
+        if sort_order.lower() == "desc":
+            query = query.filter(Transaction.created_at < cursor_dt)
+        else:
+            query = query.filter(Transaction.created_at > cursor_dt)
+        skip = 0  # cursor replaces offset
+
     txs = query.offset(skip).limit(limit + 1).all()
     has_more = len(txs) > limit
+    if has_more:
+        txs = txs[:limit]
+        next_cursor = txs[-1].created_at.isoformat()
+
     return {
-        "data": [_serialize_transaction(t) for t in txs[:limit]],
+        "data": [_serialize_transaction(t) for t in txs],
         "total_count": total,
         "has_more": has_more,
         "limit": limit,
         "skip": skip,
+        "next_cursor": next_cursor,
     }
 
 
@@ -533,8 +654,6 @@ async def create_transaction_impl(
     transfer_fee: Optional[float] = None,
 ) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot create transactions")
     db = _db()
     aid = uuid.UUID(account_id)
     cid = uuid.UUID(category_id) if category_id else None
@@ -545,6 +664,12 @@ async def create_transaction_impl(
     category = validate_category(db, cid, user.id)
     validate_transaction_category_match(tx_type, category)
     validate_transfer(tx_type, did, aid, Decimal(str(transfer_fee or 0)), db, user.id)
+
+    # Credit card balance check (matches API router)
+    if tx_type == TransactionType.EXPENSE and account.type == TrxAccountType.CREDIT_CARD:
+        balance_details = calculate_account_balance(db, aid, user.id)
+        if balance_details["balance"] <= 0:
+            raise ValueError("Cannot create expense with this credit card - no available balance. Please top up by creating a transfer to this account.")
 
     data = {
         "transaction_date": datetime.fromisoformat(transaction_date),
@@ -575,8 +700,6 @@ async def update_transaction_impl(
     transfer_fee: Optional[float] = None,
 ) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot update transactions")
     db = _db()
     tid = uuid.UUID(transaction_id)
     tx = db.query(Transaction).filter(Transaction.id == tid, Transaction.user_id == user.id).first()
@@ -588,10 +711,23 @@ async def update_transaction_impl(
     did = uuid.UUID(destination_account_id) if destination_account_id else None
     tx_type = TransactionType(transaction_type.lower())
 
-    validate_account(db, aid, user.id)
+    account = validate_account(db, aid, user.id)
     category = validate_category(db, cid, user.id)
     validate_transaction_category_match(tx_type, category)
     validate_transfer(tx_type, did, aid, Decimal(str(transfer_fee or 0)), db, user.id)
+
+    # Credit card balance check (matches API router)
+    if (
+        tx_type == TransactionType.EXPENSE
+        and account.type == TrxAccountType.CREDIT_CARD
+        and (tx.transaction_type != TransactionType.EXPENSE or amount > float(tx.amount))
+    ):
+        balance_details = calculate_account_balance(db, aid, user.id)
+        adjusted_balance = balance_details["balance"]
+        if tx.transaction_type == TransactionType.EXPENSE and tx.account_id == aid:
+            adjusted_balance += float(tx.amount)
+        if adjusted_balance - amount < 0:
+            raise ValueError("Insufficient credit card balance for this update. Please top up the account.")
 
     tx.transaction_date = datetime.fromisoformat(transaction_date)
     tx.description = description
@@ -608,15 +744,13 @@ async def update_transaction_impl(
 
 async def delete_transaction_impl(transaction_id: str) -> dict:
     user = _user()
-    if user.username == "guest":
-        raise PermissionError("Guest users cannot delete transactions")
     db = _db()
     tid = uuid.UUID(transaction_id)
     tx = db.query(Transaction).filter(Transaction.id == tid, Transaction.user_id == user.id).first()
     if not tx:
         raise LookupError(f"Transaction {transaction_id} not found")
     deleted_info = prepare_deleted_transaction_info(tx)
-    db.query(Transaction).filter(Transaction.id == tid).delete()
+    db.query(Transaction).filter(Transaction.id == tid, Transaction.user_id == user.id).delete()
     db.commit()
     return {"message": f"Transaction {transaction_id} deleted", "deleted_item": deleted_info}
 
@@ -777,7 +911,11 @@ async def analyze_bill_impl(
     import base64 as _b64
     import json
 
-    path = Path(image_path)
+    path = Path(image_path).resolve()
+    # Sandbox: only allow reading from /tmp or current working directory
+    allowed_prefixes = [Path("/tmp").resolve(), Path.cwd().resolve()]
+    if not any(str(path).startswith(str(p)) for p in allowed_prefixes):
+        raise PermissionError(f"Path not allowed: {image_path}. Must be under /tmp or {Path.cwd()}")
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
@@ -818,3 +956,111 @@ async def analyze_bill_impl(
         response_format={"type": "json_object"},
     )
     return json.loads(analysis_resp.choices[0].message.content)
+
+
+# ---------------------------------------------------------------------------
+# File tools
+# ---------------------------------------------------------------------------
+
+def _serialize_file(f: FileUpload) -> dict:
+    return {
+        "id": str(f.id),
+        "filename": f.original_filename,
+        "content_type": f.content_type,
+        "size_bytes": f.size_bytes,
+        "storage_key": f.storage_key,
+        "is_orphan": f.is_orphan,
+        "created_at": f.created_at.isoformat() if f.created_at else None,
+    }
+
+
+async def list_files_impl(limit: int = 50) -> list:
+    """List current user's uploaded files."""
+    db = _db()
+    user = _user()
+    files = (
+        db.query(FileUpload)
+        .filter(FileUpload.user_id == user.id, FileUpload.is_orphan == False)
+        .order_by(desc(FileUpload.created_at))
+        .limit(limit)
+        .all()
+    )
+    return [_serialize_file(f) for f in files]
+
+
+async def delete_file_impl(file_id: str) -> dict:
+    """Mark a file as orphan (soft delete)."""
+    from app.utils.file_service import mark_orphan
+
+    db = _db()
+    user = _user()
+    query = db.query(FileUpload).filter(FileUpload.id == file_id)
+    if not user.is_superuser:
+        query = query.filter(FileUpload.user_id == user.id)
+    file_upload = query.first()
+    if not file_upload:
+        raise ValueError(f"File {file_id} not found or access denied")
+
+    mark_orphan(db, file_upload.id)
+    db.commit()
+    return {"message": "File marked for deletion", "file_id": file_id}
+
+
+async def cleanup_orphans_impl() -> dict:
+    """Delete all orphaned files from storage and DB. Superuser only."""
+    from app.utils.file_service import cleanup_orphans
+
+    _require_superuser()
+    db = _db()
+
+    deleted = cleanup_orphans(db)
+    return {"message": f"Cleaned up {len(deleted)} orphaned files", "deleted": deleted}
+
+
+async def cleanup_guest_data_impl(days: int = 30) -> dict:
+    """Delete guest users' transactions older than N days. Superuser only."""
+    from datetime import timedelta
+    from app.utils.file_service import mark_orphan, delete_file_from_storage
+
+    _require_superuser()
+    db = _db()
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    guest_users = db.query(User).filter(User.username == "guest").all()
+    guest_ids = [u.id for u in guest_users]
+
+    if not guest_ids:
+        return {"message": "No guest users found", "deleted_transactions": 0, "orphaned_files": 0}
+
+    old_transactions = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id.in_(guest_ids),
+            Transaction.created_at < cutoff,
+        )
+        .all()
+    )
+
+    deleted_count = len(old_transactions)
+    orphaned_files = 0
+    receipt_files = []
+
+    for tx in old_transactions:
+        if tx.receipt_file_id:
+            file_upload = mark_orphan(db, tx.receipt_file_id)
+            if file_upload:
+                receipt_files.append(file_upload)
+            orphaned_files += 1
+        db.delete(tx)
+
+    db.commit()
+
+    for f in receipt_files:
+        delete_file_from_storage(f.storage_key, f.bucket)
+
+    return {
+        "message": f"Cleaned up {deleted_count} guest transactions older than {days} days",
+        "deleted_transactions": deleted_count,
+        "orphaned_files": orphaned_files,
+    }

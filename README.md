@@ -49,7 +49,8 @@ A FastAPI-based API service providing blog management, bill splitting analysis, 
   - Conversation history with tool call tracking
 
 - **MCP Server**
-  - All features exposed as MCP tools at `/mcp/{base64(username:password)}`
+  - 31 tools exposing all features at `/mcp/{base64(username:password)}`
+  - Permission-matched to API (blog writes superuser-only, cuan CRUD any user)
   - Compatible with Claude Desktop and MCP Inspector
 
 ## Tech Stack
@@ -128,7 +129,7 @@ uv run uvicorn app.main:app --reload --port 8000
 uv run python -m pytest tests/ -v
 ```
 
-Tests use mocks for all external services (OpenAI, email) — no live credentials needed.
+280 tests covering MCP tools, auth, blog helpers, cuan helpers, file service, crypto, chat orchestrator, and MiMo client. Tests use mocks for all external services (OpenAI, email, S3) — no live credentials needed.
 
 ## API Endpoints
 
@@ -236,7 +237,18 @@ Form fields: `image` (JPG/PNG/WebP ≤ 5 MB), `description` (who ordered what), 
 /mcp/{base64(username:password)}
 ```
 
-All 27 tools (auth, blog, cuan, ngakak) are available via the MCP protocol. Compatible with Claude Desktop.
+31 tools across 6 domains, matching all API endpoints (auth flows + SSE chat excluded):
+
+| Domain | Tools | Permissions |
+|--------|-------|-------------|
+| Auth | `get_current_user`, `list_all_users`, `register_user`, `delete_user` | Superuser-only for admin ops |
+| Blog | `list_posts`, `get_post`, `create_post`, `update_post`, `delete_post` | Superuser-only for writes |
+| Cuan Accounts | `list_accounts`, `get_account_balance`, `create_account`, `update_account`, `delete_account` | Any authenticated user |
+| Cuan Categories | `list_categories`, `create_category`, `update_category`, `delete_category` | Any authenticated user |
+| Cuan Transactions | `list_transactions`, `create_transaction`, `update_transaction`, `delete_transaction` | Any authenticated user |
+| Cuan Statistics | `get_financial_summary`, `get_category_distribution`, `get_trends`, `get_account_summary` | Any authenticated user |
+| Files | `list_files`, `delete_file`, `cleanup_orphaned_files`, `cleanup_guest_data` | Superuser for admin ops |
+| Ngakak | `analyze_bill` | Any authenticated user |
 
 ```bash
 # Test with MCP Inspector (server must be running)

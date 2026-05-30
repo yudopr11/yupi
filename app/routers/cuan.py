@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery, File, Form, UploadFile
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, desc
+from sqlalchemy import func, desc
 from typing import List, Optional
 import uuid
 from datetime import datetime, UTC
@@ -362,7 +362,7 @@ def get_transactions(
     end_date: Optional[datetime] = None, date_filter_type: Optional[str] = None,
     timezone: str = FastAPIQuery(default="UTC"),
     order_by: str = 'created_at', sort_order: str = 'desc',
-    limit: int = 10, skip: int = 0,
+    limit: int = FastAPIQuery(default=10, le=500), skip: int = 0,
     cursor: Optional[str] = None,
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
@@ -377,7 +377,7 @@ def get_transactions(
     )
     total_count = query.count()
 
-    # Cursor-based pagination
+    # Cursor-based pagination (cursor replaces skip)
     next_cursor = None
     if cursor:
         cursor_dt = datetime.fromisoformat(cursor)
@@ -385,6 +385,7 @@ def get_transactions(
             query = query.filter(Transaction.created_at < cursor_dt)
         else:
             query = query.filter(Transaction.created_at > cursor_dt)
+        skip = 0  # cursor replaces offset
 
     transactions = query.offset(skip).limit(limit + 1).all()
     has_more = len(transactions) > limit
@@ -616,7 +617,7 @@ def cleanup_guest_data(
     cutoff = datetime.now(UTC) - timedelta(days=days)
 
     # Find all guest users
-    guest_users = db.query(UserModel).filter(UserModel.username.like("guest%")).all()
+    guest_users = db.query(UserModel).filter(UserModel.username == "guest").all()
     guest_ids = [u.id for u in guest_users]
 
     if not guest_ids:
