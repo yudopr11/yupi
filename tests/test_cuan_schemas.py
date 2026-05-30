@@ -171,3 +171,23 @@ def test_account_response_data_from_dict():
     assert data.account_number == "9876543210"
     assert data.limit is None
     assert data.description is None
+
+
+# ---------------------------------------------------------------------------
+# TransactionList
+# ---------------------------------------------------------------------------
+
+def test_transaction_list_default_next_cursor_none():
+    from app.schemas.cuan import TransactionList
+    schema = TransactionList(data=[], total_count=0, limit=10, skip=0)
+    assert schema.next_cursor is None
+    assert schema.has_more is False
+
+
+def test_transaction_list_with_next_cursor():
+    from app.schemas.cuan import TransactionList
+    schema = TransactionList(
+        data=[], total_count=100, has_more=True, limit=10, skip=0,
+        next_cursor="2026-05-30T12:00:00+00:00"
+    )
+    assert schema.next_cursor == "2026-05-30T12:00:00+00:00"

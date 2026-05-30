@@ -173,6 +173,7 @@ class TransactionList(BaseModel):
     has_more: bool = Field(default=False, description="Whether there are more transactions to load")
     limit: int = Field(..., description="Maximum number of transactions per page")
     skip: int = Field(..., description="Number of transactions skipped")
+    next_cursor: Optional[str] = Field(None, description="Cursor for next page (created_at ISO string)")
     message: str = Field(default="Success", description="Response message")
 
 # --- Statistics Schemas ---

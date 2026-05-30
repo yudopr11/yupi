@@ -284,10 +284,12 @@ def get_transactions(
     timezone: str = FastAPIQuery(default="UTC"),
     order_by: str = 'created_at', sort_order: str = 'desc',
     limit: int = 10, skip: int = 0,
+    cursor: Optional[str] = None,
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """
     Get a paginated list of transactions with advanced filtering.
+    Supports cursor-based pagination via cursor param (created_at ISO string).
     """
     query = get_filtered_transactions(
         db=db, user_id=current_user.id, account_name=account_name, category_name=category_name,
@@ -295,14 +297,26 @@ def get_transactions(
         date_filter_type=date_filter_type, timezone=timezone, order_by=order_by, sort_order=sort_order, return_query=True
     )
     total_count = query.count()
+
+    # Cursor-based pagination
+    next_cursor = None
+    if cursor:
+        cursor_dt = datetime.fromisoformat(cursor)
+        if sort_order.lower() == 'desc':
+            query = query.filter(Transaction.created_at < cursor_dt)
+        else:
+            query = query.filter(Transaction.created_at > cursor_dt)
+
     transactions = query.offset(skip).limit(limit + 1).all()
     has_more = len(transactions) > limit
     if has_more:
         transactions = transactions[:limit]
+        next_cursor = transactions[-1].created_at.isoformat()
 
     return {
         "data": transactions, "total_count": total_count, "has_more": has_more,
-        "limit": limit, "skip": skip, "message": "Transactions retrieved successfully"
+        "limit": limit, "skip": skip, "next_cursor": next_cursor,
+        "message": "Transactions retrieved successfully"
     }
 
 # --- Statistics Endpoints ---
