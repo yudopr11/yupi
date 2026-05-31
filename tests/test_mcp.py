@@ -1,7 +1,7 @@
 """TDD tests for embedded MCP server in yupi."""
 import base64
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.utils.uuid import uuid7
 
 import pytest
@@ -61,7 +61,7 @@ def test_decode_no_colon():
 # Unit tests: authenticate_for_mcp
 # ---------------------------------------------------------------------------
 
-def test_authenticate_valid_user():
+async def test_authenticate_valid_user():
     from app.mcp.server import authenticate_for_mcp
 
     mock_db = MagicMock()
@@ -69,12 +69,12 @@ def test_authenticate_valid_user():
     mock_user.password = "hashed"
     mock_db.query.return_value.filter.return_value.first.return_value = mock_user
 
-    with patch("app.mcp.server.verify_password", return_value=True):
-        result = authenticate_for_mcp(mock_db, "testuser", "secret")
+    with patch("app.mcp.server.verify_password", new_callable=AsyncMock, return_value=True):
+        result = await authenticate_for_mcp(mock_db, "testuser", "secret")
     assert result is mock_user
 
 
-def test_authenticate_wrong_password():
+async def test_authenticate_wrong_password():
     from app.mcp.server import authenticate_for_mcp
 
     mock_db = MagicMock()
@@ -82,17 +82,17 @@ def test_authenticate_wrong_password():
     mock_user.password = "hashed"
     mock_db.query.return_value.filter.return_value.first.return_value = mock_user
 
-    with patch("app.mcp.server.verify_password", return_value=False):
-        result = authenticate_for_mcp(mock_db, "testuser", "wrong")
+    with patch("app.mcp.server.verify_password", new_callable=AsyncMock, return_value=False):
+        result = await authenticate_for_mcp(mock_db, "testuser", "wrong")
     assert result is None
 
 
-def test_authenticate_user_not_found():
+async def test_authenticate_user_not_found():
     from app.mcp.server import authenticate_for_mcp
 
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = None
-    result = authenticate_for_mcp(mock_db, "ghost", "pass")
+    result = await authenticate_for_mcp(mock_db, "ghost", "pass")
     assert result is None
 
 
@@ -117,7 +117,7 @@ def mcp_asgi():
     mock_user = make_mock_user()
     with (
         patch("app.mcp.server.SessionLocal") as mock_session_factory,
-        patch("app.mcp.server.authenticate_for_mcp", return_value=mock_user),
+        patch("app.mcp.server.authenticate_for_mcp", new_callable=AsyncMock, return_value=mock_user),
     ):
         mock_db = MagicMock()
         mock_session_factory.return_value = mock_db
@@ -157,7 +157,7 @@ async def test_mcp_invalid_credentials_returns_401():
 
     with (
         patch("app.mcp.server.SessionLocal") as mock_session_factory,
-        patch("app.mcp.server.authenticate_for_mcp", return_value=None),
+        patch("app.mcp.server.authenticate_for_mcp", new_callable=AsyncMock, return_value=None),
     ):
         mock_session_factory.return_value = MagicMock()
         app = create_mcp_asgi_app(fake_inner)
@@ -183,7 +183,7 @@ async def test_mcp_valid_token_passes_to_inner():
     mock_user = make_mock_user()
     with (
         patch("app.mcp.server.SessionLocal") as mock_session_factory,
-        patch("app.mcp.server.authenticate_for_mcp", return_value=mock_user),
+        patch("app.mcp.server.authenticate_for_mcp", new_callable=AsyncMock, return_value=mock_user),
     ):
         mock_session_factory.return_value = MagicMock()
         app = create_mcp_asgi_app(recording_inner)

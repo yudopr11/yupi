@@ -93,12 +93,18 @@ alembic upgrade head
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://...` | PostgreSQL connection string |
+| `DB_POOL_SIZE` | `20` | SQLAlchemy connection pool size |
+| `DB_MAX_OVERFLOW` | `10` | Max overflow connections beyond pool |
+| `DB_POOL_RECYCLE` | `1800` | Recycle connections after N seconds |
 | `SECRET_KEY` | — | JWT signing secret (change in production) |
 | `ALGORITHM` | `HS256` | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token TTL |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token TTL |
 | `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` | `15` | Reset token TTL |
 | `OPENAI_API_KEY` | — | OpenAI API key |
+| `MIMO_API_KEY` | — | MiMo LLM API key (overridable per-user) |
+| `MIMO_BASE_URL` | `https://token-plan-sgp.xiaomimimo.com/anthropic` | MiMo API base URL |
+| `MIMO_MODEL` | `mimo-v2.5` | MiMo model name |
 | `SUPERUSER_USERNAME` | `admin` | Auto-created admin username |
 | `SUPERUSER_EMAIL` | — | Auto-created admin email |
 | `SUPERUSER_PASSWORD` | — | Auto-created admin password |
@@ -111,6 +117,8 @@ alembic upgrade head
 | `MAIL_USERNAME` | — | Gmail address |
 | `MAIL_PASSWORD` | — | Gmail App Password |
 | `MAIL_FROM` | — | From address for emails |
+| `NGAKAK_TRUST_X_FORWARDED_FOR` | `False` | Trust X-Forwarded-For header for client IP |
+| `MCP_DNS_REBINDING_PROTECTION` | `False` | Enable DNS rebinding protection for MCP server |
 
 > Set `COOKIE_SECURE=False` for local HTTP dev — the browser won't store the refresh token cookie over HTTP with `Secure=True`.
 
@@ -129,7 +137,7 @@ uv run uvicorn app.main:app --reload --port 8000
 uv run python -m pytest tests/ -v
 ```
 
-280 tests covering MCP tools, auth, blog helpers, cuan helpers, file service, crypto, chat orchestrator, and MiMo client. Tests use mocks for all external services (OpenAI, email, S3) — no live credentials needed.
+324 tests covering MCP tools, auth, blog helpers, cuan helpers, file service, crypto, chat orchestrator, MiMo client, blog search, rate limiting, and superuser creation. Tests use mocks for all external services (OpenAI, email, S3) — no live credentials needed.
 
 ## API Endpoints
 

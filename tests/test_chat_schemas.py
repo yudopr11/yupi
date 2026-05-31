@@ -31,7 +31,6 @@ def test_chat_request_missing_message_raises():
 
 def test_chat_request_empty_message_rejected():
     from app.schemas.chat import ChatRequest
-    from pydantic import ValidationError
     with pytest.raises(ValidationError):
         ChatRequest(message="")
 

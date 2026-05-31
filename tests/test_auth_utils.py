@@ -10,28 +10,28 @@ from fastapi import HTTPException
 # verify_password / get_password_hash
 # ---------------------------------------------------------------------------
 
-def test_get_password_hash_produces_bcrypt_hash():
+async def test_get_password_hash_produces_bcrypt_hash():
     from app.utils.auth import get_password_hash
-    hashed = get_password_hash("mysecret")
+    hashed = await get_password_hash("mysecret")
     assert hashed.startswith("$2b$") or hashed.startswith("$2a$")
 
 
-def test_verify_password_correct():
+async def test_verify_password_correct():
     from app.utils.auth import get_password_hash, verify_password
-    hashed = get_password_hash("correct")
-    assert verify_password("correct", hashed) is True
+    hashed = await get_password_hash("correct")
+    assert await verify_password("correct", hashed) is True
 
 
-def test_verify_password_wrong():
+async def test_verify_password_wrong():
     from app.utils.auth import get_password_hash, verify_password
-    hashed = get_password_hash("correct")
-    assert verify_password("wrong", hashed) is False
+    hashed = await get_password_hash("correct")
+    assert await verify_password("wrong", hashed) is False
 
 
-def test_verify_password_empty_plain():
+async def test_verify_password_empty_plain():
     from app.utils.auth import get_password_hash, verify_password
-    hashed = get_password_hash("nonempty")
-    assert verify_password("", hashed) is False
+    hashed = await get_password_hash("nonempty")
+    assert await verify_password("", hashed) is False
 
 
 # ---------------------------------------------------------------------------

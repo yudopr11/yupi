@@ -25,6 +25,6 @@ class BillAnalysisResponse(BaseModel):
     subtotal_vat: Decimal = Field(..., description="Total VAT charges")
     subtotal_other: Decimal = Field(..., description="Total other charges (e.g., service charge)")
     subtotal_discount: Decimal = Field(..., description="Total discounts applied")
-    currency: str = Field(..., description="Currency code (e.g., USD, EUR)")
-    image_description: str = Field(..., description="Description of the bill image")
+    currency: str = Field(..., max_length=3, description="Currency code (e.g., USD, EUR)")
+    image_description: str = Field(..., max_length=5000, description="Description of the bill image")
     token_count: TokenCount = Field(..., description="Token usage statistics for the analysis")

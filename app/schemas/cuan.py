@@ -98,7 +98,7 @@ class TransactionBase(BaseModel):
     Base schema for transaction with common fields
     """
     transaction_date: datetime = Field(..., description="Date and time when the transaction occurred")
-    description: str = Field(..., description="Description or note about the transaction")
+    description: str = Field(..., max_length=500, description="Description or note about the transaction")
     amount: Decimal = Field(..., description="Transaction amount")
     transaction_type: TransactionType = Field(..., description="Type of transaction (income, expense, or transfer)")
     account_id: uuid.UUID = Field(..., description="ID of the account where the transaction occurred")

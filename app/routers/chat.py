@@ -1,10 +1,12 @@
 import json
+import logging
 from datetime import datetime, UTC
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
 
 from app.utils.database import get_db
 from app.utils.auth import get_current_user
@@ -24,11 +26,13 @@ from app.schemas.chat import (
     McpEndpoint,
 )
 from app.utils.mimo_client import MiMoClient
-from app.utils.mcp_client import mcp_pool
+from app.utils.mcp_client import mcp_pool, validate_mcp_endpoint
 from app.utils.chat_orchestrator import run_chat
 from app.utils.crypto import encrypt_value, decrypt_value, mask_value, encrypt_endpoint, decrypt_endpoint
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+logger = logging.getLogger(__name__)
 
 
 def _decrypt_safe(value: str | None) -> str | None:
@@ -47,7 +51,13 @@ def _get_user_mimo_config(db: Session, user: User) -> tuple[str, str, str, list[
     api_key = (_decrypt_safe(us.mimo_api_key) if us and us.mimo_api_key else None) or app_settings.MIMO_API_KEY
     base_url = (us.mimo_base_url if us and us.mimo_base_url else None) or app_settings.MIMO_BASE_URL
     model = (us.mimo_model if us and us.mimo_model else None) or app_settings.MIMO_MODEL
-    mcp_endpoints = [decrypt_endpoint(ep)["url"] for ep in us.mcp_endpoints] if us and us.mcp_endpoints else []
+    mcp_endpoints = []
+    if us and us.mcp_endpoints:
+        for ep in us.mcp_endpoints:
+            data = decrypt_endpoint(ep)
+            if data is None:
+                continue
+            mcp_endpoints.append(data["url"])
     if not api_key:
         raise HTTPException(status_code=400, detail="MiMo API key not configured. Set it in Settings.")
     return api_key, base_url, model, mcp_endpoints
@@ -78,6 +88,15 @@ def _load_conversation_messages(db: Session, conversation_id: UUID) -> list[dict
                     "input": tc.arguments or {},
                 })
             result.append({"role": "assistant", "content": content})
+            tool_results = []
+            for tc in msg.tool_calls:
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": str(tc.id),
+                    "content": tc.result if tc.result else "",
+                })
+            if tool_results:
+                result.append({"role": "user", "content": tool_results})
         elif msg.role == "user":
             if msg.content_blocks:
                 result.append({"role": "user", "content": msg.content_blocks})
@@ -107,7 +126,14 @@ async def chat(
     else:
         conv = Conversation(user_id=current_user.id, title="New Chat")
         db.add(conv)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Conflict")
+        except Exception:
+            db.rollback()
+            raise
         db.refresh(conv)
 
     # Save user message
@@ -133,12 +159,26 @@ async def chat(
         content_blocks=content_blocks,
     )
     db.add(user_msg)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
 
     # Update title from first message
     if conv.title == "New Chat":
         conv.title = body.message[:80] + ("..." if len(body.message) > 80 else "")
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Conflict")
+        except Exception:
+            db.rollback()
+            raise
 
     # Load full conversation history
     history = _load_conversation_messages(db, conv.id)
@@ -174,7 +214,6 @@ async def chat(
                     content=assistant_content,
                 )
                 db.add(assistant_msg)
-                db.flush()
                 now = datetime.now(UTC)
                 for tc in tool_calls_data:
                     tool_call = ToolCall(
@@ -182,11 +221,18 @@ async def chat(
                         tool_name=tc["name"],
                         arguments=tc["arguments"],
                         result=tc["result"],
-                        status="completed" if tc["result"] else "error",
+                        status="completed" if tc["result"] is not None else "error",
                         completed_at=now,
                     )
                     db.add(tool_call)
-                db.commit()
+                try:
+                    db.flush()
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    logging.exception("Failed to save conversation")
+                    yield f"event: error\ndata: {json.dumps({'detail': 'Failed to save conversation'})}\n\n"
+                    return
                 yield f"event: done\ndata: {json.dumps({'conversation_id': conversation_id, 'message_id': str(assistant_msg.id)})}\n\n"
 
     async def event_stream():
@@ -204,8 +250,10 @@ async def chat(
                 async for chunk in _stream_events(None):
                     yield chunk
         except Exception as e:
-            db.rollback()
-            import logging
+            try:
+                db.rollback()
+            except Exception:
+                logger.exception("Error during rollback")
             logging.exception("Chat stream error")
             yield f"event: error\ndata: {json.dumps({'detail': 'An internal error occurred'})}\n\n"
 
@@ -222,8 +270,8 @@ async def chat(
 
 @router.get("/conversations", response_model=list[ConversationResponse])
 async def list_conversations(
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -286,6 +334,7 @@ async def get_conversation(
     messages = (
         db.query(ChatMessage)
         .filter(ChatMessage.conversation_id == conv.id)
+        .options(joinedload(ChatMessage.tool_calls))
         .order_by(ChatMessage.created_at)
         .all()
     )
@@ -348,7 +397,14 @@ async def update_conversation(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     conv.title = body.title
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(conv)
     return ConversationResponse(
         id=conv.id,
@@ -372,7 +428,14 @@ async def delete_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
     info = {"id": str(conv.id), "title": conv.title}
     db.delete(conv)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     return {"message": "Conversation deleted", "deleted_item": info}
 
 
@@ -384,7 +447,14 @@ def _get_or_create_settings(db: Session, user_id) -> UserSettings:
     if not us:
         us = UserSettings(user_id=user_id)
         db.add(us)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Conflict")
+        except Exception:
+            db.rollback()
+            raise
         db.refresh(us)
     return us
 
@@ -399,6 +469,8 @@ async def get_settings(
     endpoints = []
     for ep in (us.mcp_endpoints or []):
         data = decrypt_endpoint(ep)
+        if data is None:
+            continue
         endpoints.append(McpEndpoint(name=data["name"], url=mask_value(data["url"])))
     return SettingsResponse(
         mimo_api_key=mask_value(api_key),
@@ -418,6 +490,8 @@ async def update_settings(
     if body.mimo_api_key is not None:
         us.mimo_api_key = encrypt_value(body.mimo_api_key)
     if body.mimo_base_url is not None:
+        if body.mimo_base_url and not body.mimo_base_url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="mimo_base_url must start with http:// or https://")
         us.mimo_base_url = body.mimo_base_url
     if body.mimo_model is not None:
         us.mimo_model = body.mimo_model
@@ -433,17 +507,40 @@ async def update_settings(
                 if 0 <= idx < len(existing):
                     existing.pop(idx)
 
-        # Add new endpoints (encrypt each)
+        # Add new endpoints (encrypt each), skip duplicates by URL
         if action.add:
+            existing_urls = set()
+            for enc_ep in existing:
+                data = decrypt_endpoint(enc_ep)
+                if data:
+                    existing_urls.add(data["url"])
             for ep in action.add:
-                existing.append(encrypt_endpoint(ep.name, ep.url))
+                try:
+                    validate_mcp_endpoint(ep.url)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=f"Invalid MCP endpoint: {exc}")
+                if ep.url not in existing_urls:
+                    existing.append(encrypt_endpoint(ep.name, ep.url))
+                    existing_urls.add(ep.url)
 
         us.mcp_endpoints = existing
     elif body.mcp_endpoints is not None:
-        # Direct replacement (backward compat)
-        us.mcp_endpoints = [encrypt_value(ep) for ep in body.mcp_endpoints]
+        # Direct replacement (backward compat) — wrap in dict structure for decrypt_endpoint
+        for ep in body.mcp_endpoints:
+            try:
+                validate_mcp_endpoint(ep)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid MCP endpoint: {exc}")
+        us.mcp_endpoints = [encrypt_endpoint("", ep) for ep in body.mcp_endpoints]
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(us)
 
     # Invalidate MCP connection pool so new endpoints take effect
@@ -453,6 +550,8 @@ async def update_settings(
     endpoints = []
     for ep in (us.mcp_endpoints or []):
         data = decrypt_endpoint(ep)
+        if data is None:
+            continue
         endpoints.append(McpEndpoint(name=data["name"], url=mask_value(data["url"])))
     return SettingsResponse(
         mimo_api_key=mask_value(api_key),

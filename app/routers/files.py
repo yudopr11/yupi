@@ -1,14 +1,19 @@
+import logging
+import re
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-import re
-import uuid
+from sqlalchemy.exc import IntegrityError
 
 from app.utils.database import get_db
 from app.utils.auth import get_non_guest_user, get_non_guest_superuser
 from app.models.auth import User
 from app.models.file import FileUpload
 from app.utils.file_service import download_file, mark_orphan, cleanup_orphans
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/files",
@@ -31,6 +36,9 @@ def get_file(
     if file_upload.is_orphan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File has been deleted")
 
+    if current_user.is_superuser and file_upload.user_id != current_user.id:
+        logger.info(f"Superuser {current_user.username} accessing file {file_id} owned by user {file_upload.user_id}")
+
     body = download_file(file_upload)
     return StreamingResponse(
         body,
@@ -52,8 +60,17 @@ def delete_file(
     if file_upload.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    mark_orphan(db, file_id)
-    db.commit()
+    result = mark_orphan(db, file_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     return {"message": "File marked for deletion", "file_id": str(file_id)}
 
 

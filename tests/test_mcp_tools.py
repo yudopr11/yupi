@@ -642,3 +642,155 @@ async def test_delete_user_cannot_delete_self():
             await delete_user_impl(str(user.id))
     finally:
         reset_context(t1, t2)
+
+
+# ---------------------------------------------------------------------------
+# Blog tools — success paths
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_post_success():
+    from app.mcp.tools import create_post_impl
+
+    user = make_user(is_superuser=True)
+    mock_db = MagicMock()
+    mock_db.query.return_value.all.return_value = []  # no existing tags
+    mock_db.query.return_value.filter.return_value.first.return_value = None  # slug available
+
+    mock_post_instance = MagicMock()
+    mock_post_instance.id = uuid7()
+    mock_post_instance.title = "Test Title"
+    mock_post_instance.slug = "test-title"
+    mock_post_instance.content = "Body content"
+    mock_post_instance.excerpt = "An excerpt"
+    mock_post_instance.tags = ["python"]
+    mock_post_instance.published = True
+    mock_post_instance.reading_time = 3
+    mock_post_instance.user_id = user.id
+    mock_post_instance.created_at = datetime.now(UTC)
+    mock_post_instance.updated_at = datetime.now(UTC)
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        with (
+            patch("app.mcp.tools.generate_post_content", return_value={"tags": ["python"], "excerpt": "An excerpt"}),
+            patch("app.mcp.tools.generate_slug", return_value="test-title"),
+            patch("app.mcp.tools.calculate_reading_time", return_value=3),
+            patch("app.mcp.tools.generate_post_embedding", return_value=[0.1, 0.2]),
+            patch("app.mcp.tools.Post", return_value=mock_post_instance),
+        ):
+            result = await create_post_impl(title="Test Title", content="Body content")
+            assert isinstance(result, dict)
+            assert result["title"] == "Test Title"
+            assert result["slug"] == "test-title"
+    finally:
+        reset_context(t1, t2)
+
+
+@pytest.mark.asyncio
+async def test_update_post_success():
+    from app.mcp.tools import update_post_impl
+
+    user = make_user(is_superuser=True)
+    existing_post = make_post(user_id=user.id)
+    mock_db = MagicMock()
+    # First call returns existing_post (find by ID), subsequent calls return None (slug available)
+    mock_db.query.return_value.filter.return_value.first.side_effect = [existing_post, None]
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        with (
+            patch("app.mcp.tools.generate_slug", return_value="updated-slug"),
+            patch("app.mcp.tools.calculate_reading_time", return_value=5),
+            patch("app.mcp.tools.generate_post_embedding", return_value=[0.3, 0.4]),
+        ):
+            result = await update_post_impl(
+                post_id=str(existing_post.id),
+                title="Updated Title",
+                content="Updated content",
+                tags=["fastapi"],
+                excerpt="Updated excerpt",
+            )
+            assert isinstance(result, dict)
+            assert result["title"] == "Updated Title"
+            assert result["slug"] == "updated-slug"
+    finally:
+        reset_context(t1, t2)
+
+
+@pytest.mark.asyncio
+async def test_delete_post_success():
+    from app.mcp.tools import delete_post_impl
+
+    user = make_user(is_superuser=True)
+    existing_post = make_post(user_id=user.id)
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = existing_post
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        result = await delete_post_impl(str(existing_post.id))
+        assert isinstance(result, dict)
+        assert "message" in result
+        assert "deleted_item" in result
+        assert result["deleted_item"]["title"] == existing_post.title
+    finally:
+        reset_context(t1, t2)
+
+
+# ---------------------------------------------------------------------------
+# Auth tools — success paths
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_register_user_success():
+    from app.mcp.tools import register_user_impl
+
+    user = make_user(is_superuser=True)
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    mock_new_user = MagicMock()
+    mock_new_user.id = uuid7()
+    mock_new_user.username = "newuser"
+    mock_new_user.email = "new@example.com"
+    mock_new_user.is_superuser = False
+    mock_new_user.created_at = datetime.now(UTC)
+    mock_new_user.updated_at = datetime.now(UTC)
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        with (
+            patch("app.mcp.tools.User", return_value=mock_new_user),
+            patch("app.mcp.tools.get_password_hash", new_callable=AsyncMock, return_value="hashed"),
+        ):
+            result = await register_user_impl("newuser", "new@example.com", "password123")
+            assert isinstance(result, dict)
+            assert result["username"] == "newuser"
+            assert result["email"] == "new@example.com"
+    finally:
+        reset_context(t1, t2)
+
+
+@pytest.mark.asyncio
+async def test_delete_user_success():
+    from app.mcp.tools import delete_user_impl
+
+    user = make_user(is_superuser=True)
+    target = MagicMock()
+    target.id = uuid7()
+    target.username = "victim"
+    target.email = "victim@example.com"
+
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = target
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        result = await delete_user_impl(str(target.id))
+        assert isinstance(result, dict)
+        assert "message" in result
+        assert "deleted_item" in result
+        assert result["deleted_item"]["username"] == "victim"
+    finally:
+        reset_context(t1, t2)

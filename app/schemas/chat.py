@@ -5,7 +5,7 @@ from uuid import UUID
 
 
 class ImageBlock(BaseModel):
-    media_type: str
+    media_type: str = Field(..., max_length=50)
     data: str  # base64-encoded
 
 
@@ -56,8 +56,8 @@ class ConversationUpdate(BaseModel):
 
 
 class McpEndpoint(BaseModel):
-    name: str
-    url: str
+    name: str = Field(..., max_length=100)
+    url: str = Field(..., max_length=2048)
 
 
 class SettingsResponse(BaseModel):

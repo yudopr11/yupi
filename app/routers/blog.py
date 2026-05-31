@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import Optional, Literal
 import uuid
 from app.utils.database import get_db
-from app.utils.auth import get_non_guest_user, get_non_guest_superuser
+from app.utils.auth import get_current_user, get_non_guest_user, get_non_guest_superuser
 from app.models.blog import Post
 from app.models.auth import User
 from app.schemas.blog import PostCreate, PostResponse, PaginatedPostsResponse
@@ -20,12 +22,35 @@ from app.utils.blog_helpers import (
     generate_post_embedding,
     search_posts_by_embedding
 )
-from sqlalchemy import or_, func
+import asyncio
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
+from app.utils.common import escape_like
 
 router = APIRouter(
     prefix="/blog",
     tags=["Blog"]
     )
+
+_security = HTTPBearer(auto_error=False)
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    db: Session = Depends(get_db),
+):
+    if credentials is None:
+        return None
+    try:
+        from app.utils.auth import verify_token
+        token_data = verify_token(credentials.credentials, "access")
+        user_id = token_data.sub
+        if user_id:
+            return db.query(User).filter(User.username == user_id).first()
+    except HTTPException:
+        raise
+    except Exception:
+        return None
+    return None
 
 @router.get(
     "", 
@@ -35,25 +60,26 @@ router = APIRouter(
     }
 )
 async def get_posts(
-    skip: int = 0,
-    limit: int = 10,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, le=100),
     cursor: Optional[str] = None,
     search: str = None,
     tag: str = None,
     published_status: Optional[Literal["published", "unpublished", "all"]] = "published",
     use_rag: bool = False,
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
     """
     Get paginated list of blog posts with advanced filtering and search capabilities
-    
+
     This endpoint provides a flexible way to retrieve blog posts with various filters:
     - Pagination support with skip/limit parameters
     - Text search across title, excerpt, content, and tags
     - Tag-based filtering
     - Published status filtering
     - Semantic search using OpenAI embeddings (when enabled)
-    
+
     Args:
         skip (int): Number of posts to skip (for pagination)
         limit (int): Maximum number of posts to return
@@ -61,14 +87,18 @@ async def get_posts(
         tag (str, optional): Tag to filter posts by
         published_status (str, optional): Filter by publication status ("published", "unpublished", or "all")
         use_rag (bool): Whether to use semantic search with OpenAI embeddings
-        
+
     Returns:
         PaginatedPostsResponse: List of posts with pagination metadata
-        
+
     Note:
         When use_rag=True and search is provided, the endpoint uses semantic search
         with a similarity threshold of 0.5 to find relevant posts.
     """
+    # Unauthenticated or non-superusers can only see published posts
+    if not current_user or not current_user.is_superuser:
+        published_status = "published"
+
     # If search is provided and RAG is enabled, use vector search
     if search and use_rag:
         # Set published filter based on published_status
@@ -80,7 +110,8 @@ async def get_posts(
 
         # Get semantic search results
         similarity_threshold = 0.3
-        vector_results = search_posts_by_embedding(
+        vector_results = await asyncio.to_thread(
+            search_posts_by_embedding,
             query=search,
             db=db,
             limit=100,
@@ -141,20 +172,21 @@ async def get_posts(
         
         # Apply search filter if provided
         if search:
+            escaped_search = escape_like(search)
             query = query.filter(
                 or_(
-                    Post.title.ilike(f"%{search}%"),
-                    Post.excerpt.ilike(f"%{search}%"),
-                    Post.content.ilike(f"%{search}%"),
+                    Post.title.ilike(f"%{escaped_search}%", escape="\\"),
+                    Post.excerpt.ilike(f"%{escaped_search}%", escape="\\"),
+                    Post.content.ilike(f"%{escaped_search}%", escape="\\"),
                     # Search within the tags array
-                    func.array_to_string(Post.tags, ',').ilike(f"%{search}%")
+                    func.array_to_string(Post.tags, ',').ilike(f"%{escaped_search}%", escape="\\")
                 )
             )
         
         # Apply tag filter if provided
         if tag:
             # Filter posts that have the specified tag using PostgreSQL array operations with case-insensitive matching
-            query = query.filter(func.lower(func.array_to_string(Post.tags, ',', '')).contains(func.lower(tag)))
+            query = query.filter(func.lower(func.array_to_string(Post.tags, ',', '')).contains(func.lower(escape_like(tag))))
         
         # Get total count before applying pagination
         total_count = query.count()
@@ -165,6 +197,7 @@ async def get_posts(
             from datetime import datetime as dt
             cursor_dt = dt.fromisoformat(cursor)
             query = query.filter(Post.created_at < cursor_dt)
+            skip = 0  # cursor replaces offset
 
         # Apply pagination and return results
         items = query.order_by(Post.created_at.desc()).offset(skip).limit(limit + 1).all()
@@ -193,25 +226,28 @@ async def get_posts(
 )
 async def get_post(
     slug: str,
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
     """
     Get a single blog post by its URL slug
-    
+
     This endpoint retrieves a specific blog post using its URL-friendly slug.
     The post must exist in the database.
-    
+
     Args:
         slug (str): URL-friendly identifier of the post
-        
+
     Returns:
         PostResponse: The requested blog post
-        
+
     Raises:
         HTTPException: If post with the given slug is not found
     """
     post = db.query(Post).filter(Post.slug == slug).first()
     if not post:
+        NOT_FOUND_ERROR("Post").raise_exception()
+    if not post.published and (not current_user or not current_user.is_superuser):
         NOT_FOUND_ERROR("Post").raise_exception()
     return post
 
@@ -259,48 +295,61 @@ async def create_post(
     if need_excerpt or need_tags:
         existing_tags = []
         if need_tags:
-            # Get existing tags from the database
-            tag_results = db.query(Post.tags).all()
-            # Flatten the list of lists and remove duplicates
-            flat_tags = []
-            for tags_list in tag_results:
-                if tags_list[0]:  # Check if tags_list[0] is not None
-                    flat_tags.extend(tags_list[0])
-            existing_tags = list(set(flat_tags))
-        
+            # Get distinct existing tags via unnest
+            existing_tags = [t[0] for t in db.query(func.unnest(Post.tags)).distinct().all()]
+
         # Generate content (excerpt and/or tags) in a single LLM call
-        generated_content = generate_post_content(
+        generated_content = await asyncio.to_thread(
+            generate_post_content,
             title=post_data["title"],
             content=post_data["content"],
             existing_tags=existing_tags,
             need_excerpt=need_excerpt,
             need_tags=need_tags
         )
-        
+
         # Update post data with generated content
         if need_excerpt and generated_content["excerpt"]:
             post_data["excerpt"] = generated_content["excerpt"]
-        
+
         if need_tags and generated_content["tags"]:
             post_data["tags"] = generated_content["tags"]
-    
+
+    # Generate slug and ensure uniqueness
+    base_slug = generate_slug(post.title)
+    slug = base_slug
+    for suffix in range(1, 101):
+        if not db.query(Post).filter(Post.slug == slug).first():
+            break
+        slug = f"{base_slug}-{suffix}"
+    else:
+        raise HTTPException(status_code=500, detail="Could not generate unique slug")
+
     # Create the post
     db_post = Post(
         **post_data,
-        slug=generate_slug(post.title),
+        slug=slug,
         reading_time=calculate_reading_time(post.content),
         user_id=current_user.id
     )
-    
+
     # Generate embedding for the post
     if post_data.get("excerpt"):
-        db_post.embedding = generate_post_embedding(
-            title=db_post.title, 
+        db_post.embedding = await asyncio.to_thread(
+            generate_post_embedding,
+            title=db_post.title,
             excerpt=db_post.excerpt
         )
     
     db.add(db_post)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Duplicate entry")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(db_post)
     return db_post
 
@@ -359,17 +408,12 @@ async def update_post(
         # If we need to generate tags, get existing tags for context
         existing_tags = []
         if need_tags:
-            # Get existing tags from the database
-            tag_results = db.query(Post.tags).all()
-            # Flatten the list of lists and remove duplicates
-            flat_tags = []
-            for tags_list in tag_results:
-                if tags_list[0]:  # Check if tags_list[0] is not None
-                    flat_tags.extend(tags_list[0])
-            existing_tags = list(set(flat_tags))
-        
+            # Get distinct existing tags via unnest
+            existing_tags = [t[0] for t in db.query(func.unnest(Post.tags)).distinct().all()]
+
         # Generate content with AI
-        generated_content = generate_post_content(
+        generated_content = await asyncio.to_thread(
+            generate_post_content,
             title=post_data.get("title", post.title),
             content=post_data["content"],
             existing_tags=existing_tags,
@@ -392,7 +436,15 @@ async def update_post(
     
     # Update slug if title changed
     if post_update.title:
-        post.slug = generate_slug(post_update.title)
+        base_slug = generate_slug(post_update.title)
+        slug = base_slug
+        for suffix in range(1, 101):
+            if not db.query(Post).filter(Post.slug == slug, Post.id != post.id).first():
+                break
+            slug = f"{base_slug}-{suffix}"
+        else:
+            raise HTTPException(status_code=500, detail="Could not generate unique slug")
+        post.slug = slug
     
     # Recalculate reading time if content changed
     if post_update.content:
@@ -400,12 +452,20 @@ async def update_post(
     
     # Update embedding if title or excerpt changed
     if post_update.title or post_data.get("excerpt") is not None:
-        post.embedding = generate_post_embedding(
-            title=post.title, 
+        post.embedding = await asyncio.to_thread(
+            generate_post_embedding,
+            title=post.title,
             excerpt=post.excerpt
         )
     
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Duplicate entry")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(post)
     return post
 
@@ -445,6 +505,13 @@ async def delete_post(
     
     deleted_item_info = DeletedItemInfo(id=str(post.id), uuid=str(post.id))
     db.delete(post)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
 
-    return DeleteResponse(message="Post has been deleted successfully", deleted_item=deleted_item_info) 
+    return DeleteResponse(message="Post has been deleted successfully", deleted_item=deleted_item_info)

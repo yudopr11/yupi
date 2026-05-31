@@ -1,16 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie, BackgroundTasks, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
 from typing import Annotated, List
 import uuid
+import time as _time
+import hashlib
+from collections import OrderedDict
+
+
+class _BoundedDict(OrderedDict):
+    def __init__(self, maxsize=10000):
+        super().__init__()
+        self._maxsize = maxsize
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        if len(self) > self._maxsize:
+            self.popitem(last=False)
+
+
+# In-memory rate limiting: {key: [timestamps]}
+_login_attempts: dict[str, list[float]] = _BoundedDict(maxsize=10000)
+
+
+def _check_rate_limit(key: str, max_attempts: int = 5, window: int = 300) -> bool:
+    """Return True if rate limit is exceeded."""
+    now = _time.time()
+    if key not in _login_attempts:
+        _login_attempts[key] = []
+    # Prune old entries outside the window
+    _login_attempts[key] = [t for t in _login_attempts[key] if now - t < window]
+    if len(_login_attempts[key]) >= max_attempts:
+        return True
+    _login_attempts[key].append(now)
+    return False
 
 from app.utils.database import get_db
 from app.utils.auth import (
-    verify_password, 
-    get_password_hash, 
+    verify_password,
+    get_password_hash,
     create_tokens,
-    create_token,
     verify_token,
     get_current_superuser,
     get_current_user,
@@ -20,7 +53,7 @@ from app.utils.auth import (
 )
 from app.utils.email import send_password_reset_email
 from app.core.config import settings
-from app.models.auth import User
+from app.models.auth import User, UsedResetToken
 from app.schemas.auth import (
     UserCreate, 
     UserResponse, 
@@ -76,26 +109,32 @@ async def get_current_user_info(
     }
 )
 async def get_users(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, le=200),
     current_superuser: User = Depends(get_current_superuser),
     db: Session = Depends(get_db)
 ):
     """
     Get list of all users (superuser only)
-    
+
     This endpoint returns all registered users in the system.
     Only superusers have access to this endpoint.
-    
+
+    Args:
+        skip (int): Number of users to skip (default 0)
+        limit (int): Max number of users to return (default 50)
+
     Returns:
         List[UserResponse]: A list of all users in the system, ordered by creation date (newest first)
     """
-    users = db.query(User).order_by(User.created_at.desc()).all()
-    return users 
+    users = db.query(User).order_by(User.created_at.desc()).offset(skip).limit(limit).all()
+    return users
 
 @router.post(
     "/register", 
     response_model=UserResponse,
     responses={
-        400: {"model": ErrorDetail, "description": "Username or email already registered"},
+        409: {"model": ErrorDetail, "description": "Username or email already registered"},
         401: {"model": ErrorDetail, "description": "Not authenticated"},
         403: {"model": ErrorDetail, "description": "Not enough permissions"},
         422: {"model": ErrorDetail, "description": "Validation error"}
@@ -121,20 +160,28 @@ async def register(
     Raises:
         HTTPException: If username or email is already taken
     """
+    # Quick check for better error messages (not race-safe)
     if db.query(User).filter(User.username == user.username).first():
         USERNAME_TAKEN_ERROR.raise_exception()
-    
+
     if db.query(User).filter(User.email == user.email).first():
         EMAIL_TAKEN_ERROR.raise_exception()
-    
+
     db_user = User(
         username=user.username,
         email=user.email,
-        password=get_password_hash(user.password),
+        password=await get_password_hash(user.password),
         is_superuser=user.is_superuser
     )
     db.add(db_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already registered"
+        )
     db.refresh(db_user)
     return db_user
 
@@ -147,31 +194,39 @@ async def register(
     }
 )
 async def login(
+    request: Request,
     response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Session = Depends(get_db)
 ):
     """
     Login to get access token and refresh token
-    
+
     This endpoint authenticates a user and provides them with:
     - An access token in the response body
     - A refresh token as an HTTP-only cookie
-    
+
     The access token is used for API authentication, while the refresh token
     can be used to obtain new access tokens without re-logging in.
-    
+
     Args:
         form_data (OAuth2PasswordRequestForm): Login credentials (username and password)
-        
+
     Returns:
         Token: Access token and token type
-        
+
     Raises:
         HTTPException: If credentials are invalid
     """
+    client_ip = request.client.host if request.client else "unknown"
+    if _check_rate_limit(f"{client_ip}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again later."
+        )
+
     user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.password):
+    if not user or not await verify_password(form_data.password, user.password):
         UNAUTHORIZED_ERROR.raise_exception()
     
     access_token, refresh_token = create_tokens(user.username)
@@ -200,6 +255,7 @@ async def login(
     }
 )
 async def refresh_token(
+    request: Request,
     response: Response,
     refresh_token: Annotated[str | None, Cookie(alias="refresh_token")] = None,
     db: Session = Depends(get_db)
@@ -219,6 +275,13 @@ async def refresh_token(
     Raises:
         HTTPException: If refresh token is invalid or missing
     """
+    client_ip = request.client.host if request.client else "unknown"
+    if _check_rate_limit(f"refresh:{client_ip}", max_attempts=30, window=300):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many refresh attempts. Try again later."
+        )
+
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -234,13 +297,19 @@ async def refresh_token(
         response.delete_cookie("refresh_token")
         UNAUTHORIZED_ERROR.raise_exception()
     
-    # Create only new access token
-    access_token = create_token(
-        data={"sub": user.username},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
-        token_type="access"
+    # Create new access token AND new refresh token (rotation)
+    access_token, new_refresh_token = create_tokens(user.username)
+
+    # Set new refresh token as HTTP-only cookie (old one is now invalid)
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="lax",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
     )
-    
+
     return {
         "access_token": access_token,
         "token_type": "bearer"
@@ -275,28 +344,36 @@ async def logout(response: Response):
     }
 )
 async def forgot_password(
+    http_request: Request,
     request: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     Request password reset
-    
+
     This endpoint initiates the password reset process by:
     1. Checking if the provided email exists in the system
     2. Generating a secure reset token
     3. Sending a password reset link to the user's email
-    
+
     For security reasons, the same response is returned whether the email
     exists in the system or not.
-    
+
     Args:
         request (ForgotPasswordRequest): Email address for password reset
         background_tasks (BackgroundTasks): FastAPI background tasks for email sending
-        
+
     Returns:
         ForgotPasswordResponse: Success message (same for all cases)
     """
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if _check_rate_limit(f"{client_ip}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many password reset requests. Try again later."
+        )
+
     # Check if user with this email exists
     user = db.query(User).filter(User.email == request.email).first()
     if not user:
@@ -344,7 +421,7 @@ async def reset_password(
     Raises:
         HTTPException: If token is invalid/expired or user not found
     """
-    # Verify token
+    # Verify token first (before marking as used)
     try:
         token_data = verify_token(request.token, "reset")
         email = token_data.sub
@@ -353,16 +430,35 @@ async def reset_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired password reset token"
         )
-    
+
+    # Check if token was already used (DB-backed, survives restarts)
+    token_hash = hashlib.sha256(request.token.encode()).hexdigest()
+    if db.query(UsedResetToken).filter(UsedResetToken.token_hash == token_hash).first():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired password reset token"
+        )
+
+    # Mark token as used immediately to prevent TOCTOU reuse
+    db.add(UsedResetToken(token_hash=token_hash))
+    db.flush()  # Ensure token record is durable before proceeding
+
     # Find user by email
     user = db.query(User).filter(User.email == email).first()
     if not user:
         NOT_FOUND_ERROR("User").raise_exception()
-    
+
     # Update user's password
-    user.password = get_password_hash(request.new_password)
-    db.commit()
-    
+    user.password = await get_password_hash(request.new_password)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
+
     return {"message": "Password has been reset successfully"}
 
 @router.delete(
@@ -405,7 +501,14 @@ async def delete_user(
     
     user_info = DeletedUserInfo(id=user.id, username=user.username)
     db.delete(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
 
     return DeleteUserResponse(
         message="User has been deleted successfully",

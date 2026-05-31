@@ -1,8 +1,11 @@
 """Chat orchestrator: MiMo streaming + MCP tool execution (local or remote)."""
 import json
 import inspect
+import logging
 from datetime import datetime, UTC
 from typing import AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 from app.mcp.context import _current_db_var, _current_user_var
 from app.mcp.server import mcp as mcp_server
@@ -62,6 +65,7 @@ def _get_system_prompt() -> str:
 def _build_local_tool_definitions() -> list[dict]:
     """Convert local MCP tool registrations to Anthropic tool format."""
     tools = []
+    # NOTE: _tool_manager._tools is internal to FastMCP; pin mcp version if this breaks
     for tool_name, tool_obj in mcp_server._tool_manager._tools.items():
         func = tool_obj.fn
         hints = func.__annotations__.copy()
@@ -117,6 +121,7 @@ async def _execute_local_tool(name: str, arguments: dict, user: User, db: Sessio
         result = await tool_obj.fn(**arguments)
         return json.dumps(result, default=str)
     except Exception as e:
+        logger.exception(f"Tool execution failed: {name}")
         return json.dumps({"error": str(e)})
     finally:
         _current_user_var.reset(token_user)

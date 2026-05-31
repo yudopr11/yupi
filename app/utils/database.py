@@ -5,9 +5,9 @@ from app.core.config import settings
 # Create SQLAlchemy engine instance with database URL from settings
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_recycle=300,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_recycle=settings.DB_POOL_RECYCLE,
     pool_pre_ping=True,
 )
 

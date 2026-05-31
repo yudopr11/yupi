@@ -1,12 +1,29 @@
 from openai import OpenAI
 from typing import List, Dict, Any
 import json
+import logging
 import re
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 from slugify import slugify
+import threading
 from app.core.config import settings
 from app.models.blog import Post
+
+logger = logging.getLogger(__name__)
+
+_openai_client = None
+_openai_lock = threading.Lock()
+
+def _get_openai_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        with _openai_lock:
+            if _openai_client is None:
+                _openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    return _openai_client
 
 # --- Constants ---
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI's embedding model
@@ -116,9 +133,8 @@ def generate_post_content(
         return result
     
     try:
-        # Initialize OpenAI client
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        
+        client = _get_openai_client()
+
         # Create prompt with existing tags
         existing_tags_str = ", ".join(existing_tags[:100])  # Limit to first 100 tags for context
         
@@ -220,11 +236,18 @@ Return your response in the following JSON format:
                 # Try to find tags by looking for patterns
                 result["tags"] = extract_tags_from_text(response_text)
             
-    except Exception as e:
-        # If API call fails or any other error occurs, use fallbacks
+    except Exception:
+        logger.exception("Failed to generate excerpt/tags via OpenAI")
         if need_excerpt:
             result["excerpt"] = fallback_excerpt(content)
-            
+        if need_tags:
+            fallback_tag = title.strip().split()[0].lower() if title and title.strip() else ""
+            if fallback_tag:
+                result["tags"] = [fallback_tag]
+                logger.warning("Tags generation failed, using fallback tag from title: %s", fallback_tag)
+            else:
+                logger.warning("Tags generation failed, defaulting to empty list")
+
     return result
 
 def extract_excerpt_from_text(text: str) -> str:
@@ -331,9 +354,8 @@ def generate_embedding(text: str) -> List[float]:
         if not text:
             return [0.0] * EMBEDDING_DIMENSION
         
-        # Initialize OpenAI client
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        
+        client = _get_openai_client()
+
         # Create embedding
         response = client.embeddings.create(
             model=EMBEDDING_MODEL,
@@ -344,7 +366,8 @@ def generate_embedding(text: str) -> List[float]:
         embedding = response.data[0].embedding
         
         return embedding
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to generate embedding")
         return [0.0] * EMBEDDING_DIMENSION
 
 def generate_post_embedding(title: str, excerpt: str) -> List[float]:
@@ -389,17 +412,17 @@ def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: 
         # Update all posts if force_update is True
         query = db.query(Post)
         total = query.count()
-        print(f"Forcing update of embeddings for all {total} posts")
+        logger.info(f"Forcing update of embeddings for all {total} posts")
     else:
         # Otherwise, only update posts without embeddings
         query = db.query(Post).filter(Post.embedding.is_(None))
         total = query.count()
         
         if total == 0:
-            print("No posts found without embeddings. All posts are already processed.")
+            logger.info("No posts found without embeddings. All posts are already processed.")
             return
         else:
-            print(f"Found {total} posts without embeddings")
+            logger.info(f"Found {total} posts without embeddings")
         
     processed = 0
     last_id = None
@@ -423,9 +446,16 @@ def update_all_post_embeddings(db: Session, batch_size: int = 50, force_update: 
             post.embedding = embedding
 
         last_id = posts[-1].id
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Conflict")
+        except Exception:
+            db.rollback()
+            raise
         processed += len(posts)
-        print(f"Processed {processed}/{total} posts")
+        logger.info(f"Processed {processed}/{total} posts")
 
 def search_posts_by_embedding(
     query: str, 
@@ -466,6 +496,7 @@ def search_posts_by_embedding(
     # Default threshold to 0 if not provided
     similarity_threshold = similarity_threshold if similarity_threshold is not None else 0
 
+    # SECURITY: published_filter is code-controlled boolean literal, not user input
     published_filter = "AND blog_posts.published = TRUE" if published_only else ""
 
     sql = text(f"""

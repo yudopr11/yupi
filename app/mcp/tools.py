@@ -1,4 +1,5 @@
 """MCP tool implementations — call DB/services directly, no HTTP."""
+import asyncio
 import mimetypes
 import uuid
 from datetime import datetime, UTC
@@ -6,12 +7,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from fastapi import HTTPException
-from openai import OpenAI
 from sqlalchemy import desc, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.mcp.context import _current_db_var, _current_user_var
 from app.models.auth import User
 from app.models.blog import Post
@@ -24,12 +23,14 @@ from app.models.cuan import (
 from app.models.file import FileUpload
 from app.utils.auth import get_password_hash
 from app.utils.blog_helpers import (
+    _get_openai_client,
     calculate_reading_time,
     generate_post_content,
     generate_post_embedding,
     generate_slug,
     search_posts_by_embedding,
 )
+from app.utils.common import escape_like
 from app.utils.cuan_helpers import (
     calculate_account_balance,
     calculate_date_range,
@@ -186,11 +187,18 @@ async def register_user_impl(
     new_user = User(
         username=username,
         email=email,
-        password=get_password_hash(password),
+        password=await get_password_hash(password),
         is_superuser=is_superuser,
     )
     db.add(new_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(new_user)
     return _serialize_user(new_user)
 
@@ -205,7 +213,14 @@ async def delete_user_impl(user_id: str) -> dict:
         raise PermissionError("Cannot delete your own account")
     info = {"id": str(target.id), "username": target.username, "email": target.email}
     db.delete(target)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"User {user_id} deleted", "deleted_item": info}
 
 
@@ -223,12 +238,19 @@ async def list_posts_impl(
     use_rag: bool = False,
 ) -> dict:
     db = _db()
+    limit = min(limit, 100)
+
+    # Non-superusers can only see published posts
+    user = _user()
+    if not user.is_superuser:
+        published_status = "published"
 
     # RAG semantic search path
     if search and use_rag:
         is_published_only = published_status == "published"
         similarity_threshold = 0.3
-        vector_results = search_posts_by_embedding(
+        vector_results = await asyncio.to_thread(
+            search_posts_by_embedding,
             query=search, db=db, limit=100,
             similarity_threshold=similarity_threshold,
             published_only=is_published_only,
@@ -281,17 +303,18 @@ async def list_posts_impl(
         query = query.filter(Post.published == False)
 
     if search:
+        escaped = escape_like(search)
         query = query.filter(
             or_(
-                Post.title.ilike(f"%{search}%"),
-                Post.excerpt.ilike(f"%{search}%"),
-                Post.content.ilike(f"%{search}%"),
-                func.array_to_string(Post.tags, ',').ilike(f"%{search}%"),
+                Post.title.ilike(f"%{escaped}%", escape="\\"),
+                Post.excerpt.ilike(f"%{escaped}%", escape="\\"),
+                Post.content.ilike(f"%{escaped}%", escape="\\"),
+                func.array_to_string(Post.tags, ',').ilike(f"%{escaped}%", escape="\\"),
             )
         )
 
     if tag:
-        query = query.filter(func.lower(func.array_to_string(Post.tags, ',', '')).contains(func.lower(tag)))
+        query = query.filter(func.lower(func.array_to_string(Post.tags, ',', '')).contains(func.lower(escape_like(tag))))
 
     total = query.count()
 
@@ -324,6 +347,8 @@ async def get_post_impl(slug: str) -> dict:
     post = db.query(Post).filter(Post.slug == slug).first()
     if not post:
         raise LookupError(f"Post '{slug}' not found")
+    if not post.published and not _user().is_superuser:
+        raise LookupError("Post not found")
     return _serialize_post(post)
 
 
@@ -342,14 +367,10 @@ async def create_post_impl(
 
     existing_tags = []
     if need_tags:
-        tag_results = db.query(Post.tags).all()
-        flat_tags = []
-        for tags_list in tag_results:
-            if tags_list[0]:
-                flat_tags.extend(tags_list[0])
-        existing_tags = list(set(flat_tags))
+        existing_tags = [t[0] for t in db.query(func.unnest(Post.tags)).distinct().all()]
 
-    generated = generate_post_content(
+    generated = await asyncio.to_thread(
+        generate_post_content,
         title, content,
         existing_tags=existing_tags,
         need_excerpt=need_excerpt,
@@ -360,9 +381,18 @@ async def create_post_impl(
     final_tags = tags if tags is not None else generated.get("tags", [])
     final_excerpt = excerpt if not need_excerpt else generated.get("excerpt", "")
 
+    slug = generate_slug(title)
+    base_slug = slug
+    for counter in range(1, 101):
+        if not db.query(Post).filter(Post.slug == slug).first():
+            break
+        slug = f"{base_slug}-{counter}"
+    else:
+        raise RuntimeError("Could not generate unique slug")
+
     post = Post(
         title=title,
-        slug=generate_slug(title),
+        slug=slug,
         content=content,
         excerpt=final_excerpt,
         tags=final_tags,
@@ -371,12 +401,26 @@ async def create_post_impl(
         user_id=_user().id,
     )
     db.add(post)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(post)
 
     if post.excerpt:
-        post.embedding = generate_post_embedding(post.title, post.excerpt)
-        db.commit()
+        post.embedding = await asyncio.to_thread(generate_post_embedding, post.title, post.excerpt)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise
+        except Exception:
+            db.rollback()
+            raise
         db.refresh(post)
 
     return _serialize_post(post)
@@ -395,22 +439,17 @@ async def update_post_impl(
     post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise LookupError(f"Post {post_id} not found")
-    _require_superuser()
 
     need_excerpt = not excerpt or excerpt.strip() == ""
     need_tags = not tags or len(tags) == 0
 
     existing_tags = []
     if need_tags:
-        tag_results = db.query(Post.tags).all()
-        flat_tags = []
-        for tags_list in tag_results:
-            if tags_list[0]:
-                flat_tags.extend(tags_list[0])
-        existing_tags = list(set(flat_tags))
+        existing_tags = [t[0] for t in db.query(func.unnest(Post.tags)).distinct().all()]
 
     if need_excerpt or need_tags:
-        generated = generate_post_content(
+        generated = await asyncio.to_thread(
+            generate_post_content,
             title, content,
             existing_tags=existing_tags,
             need_excerpt=need_excerpt,
@@ -433,13 +472,28 @@ async def update_post_impl(
         setattr(post, key, value)
 
     if title:
-        post.slug = generate_slug(title)
+        slug = generate_slug(title)
+        base_slug = slug
+        for counter in range(1, 101):
+            if not db.query(Post).filter(Post.slug == slug, Post.id != post.id).first():
+                break
+            slug = f"{base_slug}-{counter}"
+        else:
+            raise RuntimeError("Could not generate unique slug")
+        post.slug = slug
     if content:
         post.reading_time = calculate_reading_time(content)
     if title or excerpt is not None:
-        post.embedding = generate_post_embedding(post.title, post.excerpt)
+        post.embedding = await asyncio.to_thread(generate_post_embedding, post.title, post.excerpt)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(post)
     return _serialize_post(post)
 
@@ -452,7 +506,14 @@ async def delete_post_impl(post_id: str) -> dict:
         raise LookupError(f"Post {post_id} not found")
     info = {"id": str(post.id), "uuid": str(post.id), "title": post.title}
     db.delete(post)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Post {post_id} deleted", "deleted_item": info}
 
 
@@ -493,11 +554,20 @@ async def create_account_impl(
     data = {"name": name, "type": type, "description": description, "limit": limit, "account_number": account_number}
     account = prepare_account_for_db(data, user.id)
     db.add(account)
-    db.commit()
-    db.refresh(account)
+    db.flush()  # Get account.id without committing
 
     if account.type == TrxAccountType.CREDIT_CARD and account.limit is not None:
         create_credit_card_initial_transaction(db, account, user.id)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(account)
 
     return _serialize_account(account)
 
@@ -514,15 +584,22 @@ async def update_account_impl(
     db = _db()
     account = validate_account(db, uuid.UUID(account_id), user.id)
     if type == TrxAccountType.CREDIT_CARD.value and limit is None:
-        raise HTTPException(status_code=400, detail="Credit card accounts must have a limit.")
+        raise ValueError("Credit card accounts must have a limit.")
     if type != TrxAccountType.CREDIT_CARD.value and limit is not None:
-        raise HTTPException(status_code=400, detail=f"Account type '{type}' cannot have a limit.")
+        raise ValueError(f"Account type '{type}' cannot have a limit.")
     account.name = name
     account.type = type
     account.description = description
     account.limit = limit
     account.account_number = account_number
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(account)
     return _serialize_account(account)
 
@@ -533,7 +610,14 @@ async def delete_account_impl(account_id: str) -> dict:
     account = validate_account(db, uuid.UUID(account_id), user.id)
     deleted_info = prepare_deleted_account_info(account)
     db.delete(account)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Account {account_id} deleted", "deleted_item": deleted_info}
 
 
@@ -553,7 +637,14 @@ async def create_category_impl(name: str, type: str) -> dict:
     db = _db()
     cat = prepare_category_for_db({"name": name, "type": type}, user.id)
     db.add(cat)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(cat)
     return _serialize_category(cat)
 
@@ -564,7 +655,14 @@ async def update_category_impl(category_id: str, name: str, type: str) -> dict:
     cat = validate_category(db, uuid.UUID(category_id), user.id)
     cat.name = name
     cat.type = type
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(cat)
     return _serialize_category(cat)
 
@@ -575,7 +673,14 @@ async def delete_category_impl(category_id: str) -> dict:
     cat = validate_category(db, uuid.UUID(category_id), user.id)
     deleted_info = prepare_deleted_category_info(cat)
     db.delete(cat)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Category {category_id} deleted", "deleted_item": deleted_info}
 
 
@@ -599,6 +704,7 @@ async def list_transactions_impl(
 ) -> dict:
     db = _db()
     user = _user()
+    limit = min(limit, 100)
     parsed_start = datetime.fromisoformat(start_date) if start_date else None
     parsed_end = datetime.fromisoformat(end_date) if end_date else None
     query = get_filtered_transactions(
@@ -683,7 +789,14 @@ async def create_transaction_impl(
     }
     tx = prepare_transaction_for_db(data, user.id)
     db.add(tx)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(tx)
     return _serialize_transaction(tx)
 
@@ -737,7 +850,14 @@ async def update_transaction_impl(
     tx.category_id = cid
     tx.destination_account_id = did
     tx.transfer_fee = Decimal(str(transfer_fee)) if transfer_fee else Decimal("0")
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(tx)
     return _serialize_transaction(tx)
 
@@ -751,7 +871,14 @@ async def delete_transaction_impl(transaction_id: str) -> dict:
         raise LookupError(f"Transaction {transaction_id} not found")
     deleted_info = prepare_deleted_transaction_info(tx)
     db.query(Transaction).filter(Transaction.id == tid, Transaction.user_id == user.id).delete()
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Transaction {transaction_id} deleted", "deleted_item": deleted_info}
 
 
@@ -914,7 +1041,7 @@ async def analyze_bill_impl(
     path = Path(image_path).resolve()
     # Sandbox: only allow reading from /tmp or current working directory
     allowed_prefixes = [Path("/tmp").resolve(), Path.cwd().resolve()]
-    if not any(str(path).startswith(str(p)) for p in allowed_prefixes):
+    if not any(path.resolve().is_relative_to(p) for p in allowed_prefixes):
         raise PermissionError(f"Path not allowed: {image_path}. Must be under /tmp or {Path.cwd()}")
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
@@ -927,11 +1054,12 @@ async def analyze_bill_impl(
     if len(image_bytes) > 5 * 1024 * 1024:
         raise ValueError("Image exceeds 5MB limit")
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    client = _get_openai_client()
     b64_image = _b64.b64encode(image_bytes).decode()
 
     if not image_description:
-        vision_resp = client.chat.completions.create(
+        vision_resp = await asyncio.to_thread(
+            client.chat.completions.create,
             model="gpt-4o",
             messages=[
                 {
@@ -945,7 +1073,8 @@ async def analyze_bill_impl(
         )
         image_description = vision_resp.choices[0].message.content
 
-    analysis_resp = client.chat.completions.create(
+    analysis_resp = await asyncio.to_thread(
+        client.chat.completions.create,
         model="o3-mini",
         messages=[
             {
@@ -978,6 +1107,7 @@ async def list_files_impl(limit: int = 50) -> list:
     """List current user's uploaded files."""
     db = _db()
     user = _user()
+    limit = min(limit, 100)
     files = (
         db.query(FileUpload)
         .filter(FileUpload.user_id == user.id, FileUpload.is_orphan == False)
@@ -1002,7 +1132,14 @@ async def delete_file_impl(file_id: str) -> dict:
         raise ValueError(f"File {file_id} not found or access denied")
 
     mark_orphan(db, file_upload.id)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return {"message": "File marked for deletion", "file_id": file_id}
 
 
@@ -1021,6 +1158,9 @@ async def cleanup_guest_data_impl(days: int = 30) -> dict:
     """Delete guest users' transactions older than N days. Superuser only."""
     from datetime import timedelta
     from app.utils.file_service import mark_orphan, delete_file_from_storage
+
+    if days < 1 or days > 365:
+        raise ValueError("days must be between 1 and 365")
 
     _require_superuser()
     db = _db()
@@ -1054,7 +1194,14 @@ async def cleanup_guest_data_impl(days: int = 30) -> dict:
             orphaned_files += 1
         db.delete(tx)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
     for f in receipt_files:
         delete_file_from_storage(f.storage_key, f.bucket)

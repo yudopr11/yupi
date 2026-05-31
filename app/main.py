@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 import anyio
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.mcp.server import create_mcp_asgi_app, mcp
@@ -36,12 +39,22 @@ async def _dual_lifespan(fastapi_app: ASGIApp, mcp_app: ASGIApp, scope: Scope, r
     async def fastapi_send(msg: dict) -> None:
         if msg["type"] == "lifespan.startup.complete":
             fastapi_ready.set()
+        elif msg["type"] == "lifespan.startup.failed":
+            err = msg.get("message", "unknown error")
+            logger.error("FastAPI startup failed: %s", err)
+            fastapi_ready.set()
+            raise RuntimeError(f"FastAPI startup failed: {err}")
         elif msg["type"] == "lifespan.shutdown.complete":
             fastapi_done.set()
 
     async def mcp_send(msg: dict) -> None:
         if msg["type"] == "lifespan.startup.complete":
             mcp_ready.set()
+        elif msg["type"] == "lifespan.startup.failed":
+            err = msg.get("message", "unknown error")
+            logger.error("FastMCP startup failed: %s", err)
+            mcp_ready.set()
+            raise RuntimeError(f"FastMCP startup failed: {err}")
         elif msg["type"] == "lifespan.shutdown.complete":
             mcp_done.set()
 
@@ -49,8 +62,14 @@ async def _dual_lifespan(fastapi_app: ASGIApp, mcp_app: ASGIApp, scope: Scope, r
         tg.start_soon(fastapi_app, scope, fastapi_q.get, fastapi_send)
         tg.start_soon(mcp_app, scope, mcp_q.get, mcp_send)
 
-        await fastapi_ready.wait()
-        await mcp_ready.wait()
+        try:
+            await asyncio.wait_for(fastapi_ready.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            raise RuntimeError("FastAPI startup timed out after 30 seconds")
+        try:
+            await asyncio.wait_for(mcp_ready.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            raise RuntimeError("FastMCP startup timed out after 30 seconds")
         await send({"type": "lifespan.startup.complete"})
 
         shutdown = await receive()
@@ -73,11 +92,13 @@ class MCPMiddleware:
             await _dual_lifespan(self._app, _mcp_starlette, scope, receive, send)
             return
 
-        if scope["type"] in ("http", "websocket"):
-            path: str = scope.get("path", "")
-            if path.startswith("/mcp/") or path == "/mcp":
-                await _mcp_auth(scope, receive, send)
-                return
+        if scope["type"] != "http":
+            return await self._app(scope, receive, send)
+
+        path: str = scope.get("path", "")
+        if path.startswith("/mcp/") or path == "/mcp":
+            await _mcp_auth(scope, receive, send)
+            return
 
         await self._app(scope, receive, send)
 
@@ -93,10 +114,27 @@ init_cors(app)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not settings.SECRET_KEY:
         raise RuntimeError("SECRET_KEY must be set in environment or .env file")
-    db = next(get_db())
-    create_superuser(db)
+
+    if not settings.COOKIE_SECURE:
+        logger.warning("COOKIE_SECURE is False — refresh tokens will be sent over HTTP. Set True in production.")
+
+    if not settings.CORS_ORIGINS:
+        logger.warning("CORS_ORIGINS is empty — no cross-origin requests will be allowed. Set explicitly in production.")
+
+    if settings.CORS_CREDENTIALS and "*" in settings.CORS_ORIGINS:
+        logger.warning("CORS_CREDENTIALS=True with CORS_ORIGINS=['*'] — allows any origin to make credentialed requests")
+
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        await create_superuser(db)
+    finally:
+        db_gen.close()
     yield
     await mcp_pool.close_all()
 

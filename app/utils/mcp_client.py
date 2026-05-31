@@ -1,13 +1,71 @@
 """MCP client with connection pooling for remote MCP servers."""
 import asyncio
+import ipaddress
 import logging
+import socket
 from contextlib import AsyncExitStack
 from typing import Any
+from urllib.parse import urlparse
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 logger = logging.getLogger(__name__)
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("::ffff:0:0/96"),  # IPv4-mapped IPv6
+]
+
+
+def _is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP address is in any blocked network."""
+    # Canonicalize IPv4-mapped IPv6 to IPv4 for proper matching
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return any(ip in network for network in _BLOCKED_NETWORKS)
+
+
+def validate_mcp_endpoint(url: str) -> str:
+    """Validate MCP endpoint URL is not targeting internal/private networks.
+
+    Returns the resolved IP address string for TOCTOU-safe connection.
+    Raises ValueError if the URL targets a blocked network.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid URL scheme: {parsed.scheme}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL must have a hostname")
+
+    if hostname.lower() in ("localhost", "0.0.0.0", "::"):
+        raise ValueError("Cannot connect to localhost")
+
+    try:
+        addr_info = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        raise ValueError(f"Cannot resolve hostname: {hostname}")
+
+    resolved_ips = []
+    for family, _, _, _, sockaddr in addr_info:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if _is_ip_blocked(ip):
+            raise ValueError(f"Cannot connect to private/internal IP: {ip}")
+        resolved_ips.append(str(ip))
+
+    if not resolved_ips:
+        raise ValueError(f"No addresses resolved for {hostname}")
+
+    return resolved_ips[0]  # Return first resolved IP for direct connection
 
 # Suppress noisy transport-level reconnect logs
 logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
@@ -57,10 +115,15 @@ class _PooledConnection:
 
     async def _connect(self) -> bool:
         """Create new connection. Must hold _lock."""
+        stack = AsyncExitStack()
         try:
-            stack = AsyncExitStack()
+            # Resolve DNS once, validate, then connect with resolved IP to prevent DNS rebinding
+            resolved_ip = validate_mcp_endpoint(self.endpoint)
+            parsed = urlparse(self.endpoint)
+            # Build IP-based URL, preserving port and path
+            ip_url = f"{parsed.scheme}://{resolved_ip}:{parsed.port or (443 if parsed.scheme == 'https' else 80)}{parsed.path or ''}"
             read_stream, write_stream, _ = await stack.enter_async_context(
-                streamablehttp_client(self.endpoint)
+                streamablehttp_client(ip_url)
             )
             client = await stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
@@ -73,6 +136,7 @@ class _PooledConnection:
             return True
         except Exception as e:
             logger.warning("MCP connect failed for %s: %s", self.endpoint, e)
+            await stack.aclose()
             self.session = None
             return False
 
@@ -87,7 +151,7 @@ class _PooledConnection:
             try:
                 await self._stack.aclose()
             except Exception:
-                pass
+                logger.debug("Error closing MCP connection", exc_info=True)
             self._stack = None
         self.session = None
         self.tools = []
@@ -102,15 +166,18 @@ class _PooledConnection:
                 return True
             return await self._connect()
 
-    async def call_tool_with_retry(self, name: str, arguments: dict[str, Any]) -> str:
+    async def call_tool_with_retry(self, name: str, arguments: dict[str, Any], retries: int = 2) -> str:
         """Call tool with automatic reconnect on failure."""
-        for attempt in range(2):
+        for attempt in range(retries + 1):
             if not await self.ensure_connected():
                 raise RuntimeError(f"MCP connection failed for {self.endpoint}")
+            session = self.session
+            if session is None:
+                continue
             try:
-                return await self.session.call_tool(name, arguments)
+                return await session.call_tool(name, arguments)
             except Exception as e:
-                if attempt == 0:
+                if attempt < retries:
                     logger.info("MCP tool call failed, reconnecting: %s", e)
                     async with self._lock:
                         await self._reconnect()
@@ -150,13 +217,12 @@ class MCPPool:
             for ep in to_remove:
                 await user_conns.pop(ep)._close_internal()
 
-        # Connect to any new endpoints (outside global lock)
+        # Connect to any new endpoints
         for ep in endpoints:
             async with self._lock:
                 conn = self._pool[user_id].get(ep)
-            if conn is None:
-                conn = _PooledConnection(ep)
-                async with self._lock:
+                if conn is None:
+                    conn = _PooledConnection(ep)
                     self._pool[user_id][ep] = conn
             await conn.ensure_connected()
 

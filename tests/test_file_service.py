@@ -1,5 +1,6 @@
 """Tests for app/utils/file_service.py and app/routers/files.py."""
 from unittest.mock import MagicMock, patch, PropertyMock
+from io import BytesIO
 import uuid
 import pytest
 
@@ -10,10 +11,21 @@ from app.utils.file_service import validate_file, ALLOWED_IMAGE_TYPES, MAX_FILE_
 # validate_file
 # ---------------------------------------------------------------------------
 
+_MAGIC_BY_CONTENT_TYPE = {
+    "image/jpeg": b'\xff\xd8\xff' + b'\x00' * 9,
+    "image/png": b'\x89PNG' + b'\x00' * 8,
+    "image/webp": b'RIFF' + b'\x00' * 4 + b'WEBP',
+    "application/pdf": b'%PDF-' + b'\x00' * 7,
+    "image/gif": b'GIF8' + b'\x00' * 8,
+}
+
+
 class FakeUploadFile:
     def __init__(self, content_type: str, filename: str = "test.jpg"):
         self.content_type = content_type
         self.filename = filename
+        magic = _MAGIC_BY_CONTENT_TYPE.get(content_type, b'\x00' * 12)
+        self.file = BytesIO(magic)
 
 
 def test_validate_file_jpeg_ok():

@@ -3,26 +3,14 @@ from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.utils.database import Base
-import enum
 from app.utils.uuid import uuid7
-
-
-class MessageRole(str, enum.Enum):
-    USER = "user"
-    ASSISTANT = "assistant"
-    SYSTEM = "system"
-    TOOL = "tool"
-
-
-class ToolCallStatus(str, enum.Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    ERROR = "error"
 
 
 class Conversation(Base):
     __tablename__ = "chat_conversations"
+    __table_args__ = (
+        Index('ix_chat_conversations_user_id', 'user_id'),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     title = Column(String, nullable=False, default="New Chat")
@@ -53,6 +41,9 @@ class ChatMessage(Base):
 
 class ToolCall(Base):
     __tablename__ = "chat_tool_calls"
+    __table_args__ = (
+        Index('ix_chat_tool_calls_message_id', 'message_id'),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     message_id = Column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)

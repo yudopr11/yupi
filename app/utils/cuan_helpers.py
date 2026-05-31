@@ -1,6 +1,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import func, case, or_, desc, and_
+from sqlalchemy.exc import IntegrityError
 from typing import Dict, Any, Tuple, Union, Optional, List
 import uuid
 from app.utils.uuid import uuid7
@@ -10,6 +11,7 @@ import calendar
 from decimal import Decimal
 
 from app.models.cuan import TrxAccount, TrxAccountType, TrxCategory, TrxCategoryType, Transaction, TransactionType
+from app.utils.common import escape_like
 
 # --- Validation Helpers ---
 
@@ -157,7 +159,7 @@ def create_credit_card_initial_transaction(db: Session, account: TrxAccount, use
     if not other_category:
         other_category = TrxCategory(id=uuid7(), name="Other", type=TrxCategoryType.INCOME, user_id=user_id)
         db.add(other_category)
-        db.commit()
+        db.flush()  # Get category.id without committing
         db.refresh(other_category)
 
     initial_tx = Transaction(
@@ -171,7 +173,7 @@ def create_credit_card_initial_transaction(db: Session, account: TrxAccount, use
         user_id=user_id,
     )
     db.add(initial_tx)
-    db.commit()
+    db.flush()  # Prepare transaction without committing; caller will commit
 
 
 def prepare_deleted_account_info(account: TrxAccount) -> Dict[str, Any]:
@@ -277,7 +279,7 @@ def calculate_account_balance(db: Session, account_id: uuid.UUID, user_id: Optio
         "payable_balance": payable_balance
     }
 
-def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Optional[str] = None, as_of: Optional[datetime] = None) -> List[Dict[str, Any]]:
+def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Optional[str] = None, as_of: Optional[datetime] = None, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
     """
     Gets all accounts for a user with their balances, optimized to prevent N+1 queries.
     """
@@ -316,7 +318,7 @@ def get_accounts_with_balance(db: Session, user_id: uuid.UUID, account_type: Opt
         (TrxAccount.type == TrxAccountType.CREDIT_CARD, 3),
         else_=4
     )
-    results = query.order_by(type_order, TrxAccount.name).all()
+    results = query.order_by(type_order, TrxAccount.name).offset(skip).limit(limit).all()
 
     # Process results
     accounts_with_balances = []
@@ -377,7 +379,7 @@ def get_filtered_transactions(
     if account_name:
         account_ids = [acc.id for acc in db.query(TrxAccount.id).filter(
             TrxAccount.user_id == user_id,
-            TrxAccount.name.ilike(f"%{account_name}%")
+            TrxAccount.name.ilike(f"%{escape_like(account_name)}%")
         ).all()]
         if not account_ids:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Account with name '{account_name}' not found")
@@ -386,7 +388,7 @@ def get_filtered_transactions(
     if category_name:
         category_ids = [cat.id for cat in db.query(TrxCategory.id).filter(
             TrxCategory.user_id == user_id,
-            TrxCategory.name.ilike(f"%{category_name}%")
+            TrxCategory.name.ilike(f"%{escape_like(category_name)}%")
         ).all()]
         if not category_ids:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Category with name '{category_name}' not found")

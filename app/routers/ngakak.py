@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
-from openai import OpenAI
-import json, base64
+from openai import AsyncOpenAI
+import json, base64, logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -49,6 +51,21 @@ def cleanup_old_records():
             
     last_cleanup = now
 
+    # Cap tracked IPs at 10000 to prevent unbounded growth
+    if len(request_counts) > 10000:
+        # Remove IPs with fewest total requests first
+        by_usage = sorted(request_counts.items(), key=lambda kv: sum(kv[1].values()))
+        for k, _ in by_usage[:len(request_counts) - 5000]:
+            del request_counts[k]
+
+def _get_real_ip(request: Request) -> str:
+    if settings.NGAKAK_TRUST_X_FORWARDED_FOR:
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 # Define allowed image MIME types
 ALLOWED_IMAGE_TYPES = [
     'image/jpeg',
@@ -76,7 +93,30 @@ def validate_image(file: UploadFile) -> None:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"File type not allowed. Only {', '.join(ALLOWED_IMAGE_TYPES)} are allowed"
         )
-    
+
+    # Verify magic bytes match an image signature
+    try:
+        header = file.file.read(12)
+        file.file.seek(0)
+        valid_magic = (
+            header[:3] == b'\xff\xd8\xff' or  # JPEG
+            header[:4] == b'\x89PNG' or        # PNG
+            (header[:4] == b'RIFF' and header[8:12] == b'WEBP') or  # WebP
+            header[:4] == b'GIF8'              # GIF
+        )
+        if not valid_magic:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="File content does not match a valid image format"
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not validate file content"
+        )
+
     # Optional: Check file size (e.g., max 5MB)
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
     try:
@@ -128,7 +168,7 @@ async def _analyze_bill(
     """
     try:
         # Initialize OpenAI client with API key from settings
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         image_tokens = 0
         analysis_tokens = 0
 
@@ -146,7 +186,7 @@ async def _analyze_bill(
             image_data_url = f"data:{mime_type};base64,{image_base64}"
 
             # Get image description
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 temperature=0,
                 messages=[
@@ -276,7 +316,7 @@ Return the analysis in this exact JSON structure:
 Ensure the response is valid JSON with no additional text or explanations.
 '''
         
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             temperature=temperature,
             messages=[
@@ -323,10 +363,11 @@ Ensure the response is valid JSON with no additional text or explanations.
         raise http_ex
     except Exception as e:
         # Handle other unexpected errors
+        logger.exception("Bill analysis failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while analyzing the bill: {str(e)}"
-        ) 
+            detail="An error occurred while analyzing the bill"
+        )
 
 @router.post(
     "/analyze",
@@ -379,7 +420,7 @@ async def analyze_bill(
     if current_user.username == "guest":
         # Clean up old records to prevent memory leaks
         cleanup_old_records()
-        client_ip = request.client.host
+        client_ip = _get_real_ip(request)
         today = datetime.now().strftime("%Y-%m-%d")
         if today not in request_counts[client_ip]:
             request_counts[client_ip][today] = 0

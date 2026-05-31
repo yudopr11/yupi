@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query as FastAPIQuery, File, Form, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import uuid
 from datetime import datetime, UTC
@@ -28,7 +29,7 @@ from app.utils.cuan_helpers import (
     get_accounts_with_balance,
     create_credit_card_initial_transaction,
 )
-from app.models.cuan import Transaction, TransactionType, TrxAccountType, TrxCategory as CategoryModel
+from app.models.cuan import Transaction, TransactionType, TrxAccountType, TrxAccount, TrxCategory as CategoryModel
 from app.models.auth import User
 from app.schemas.cuan import (
     TrxAccountCreate, TrxAccountResponse, TrxAccountWithBalance, TrxDeleteAccountResponse,
@@ -58,11 +59,20 @@ def create_account(account: TrxAccountCreate, db: Session = Depends(get_db), cur
     """
     new_account = prepare_account_for_db(account.model_dump(), current_user.id)
     db.add(new_account)
-    db.commit()
-    db.refresh(new_account)
+    db.flush()  # Get account.id without committing
 
     if new_account.type == TrxAccountType.CREDIT_CARD and new_account.limit is not None:
         create_credit_card_initial_transaction(db, new_account, current_user.id)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(new_account)
 
     return {"data": new_account, "message": "Account created successfully"}
 
@@ -94,7 +104,14 @@ def update_account(id: uuid.UUID, account_update: TrxAccountCreate, db: Session 
     for key, value in account_update.model_dump().items():
         setattr(account, key, value)
     
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(account)
     return {"data": account, "message": "Account updated successfully"}
 
@@ -106,7 +123,14 @@ def delete_account(id: uuid.UUID, db: Session = Depends(get_db), current_user: U
     account = validate_account(db, id, current_user.id)
     deleted_info = prepare_deleted_account_info(account)
     db.delete(account)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Account with id {id} deleted successfully", "deleted_item": deleted_info}
 
 @router.get("/accounts/{id}/balance", response_model=AccountBalanceResponse)
@@ -135,8 +159,11 @@ def get_account_balance(
 
 @router.get("/accounts", response_model=List[TrxAccountWithBalance])
 def get_accounts(
+    # account_type is intentionally Optional[str] (not TrxAccountType) — invalid values return empty list
     account_type: Optional[str] = None,
     year: Optional[int] = FastAPIQuery(None, ge=2000, le=2100),
+    skip: int = FastAPIQuery(default=0, ge=0),
+    limit: int = FastAPIQuery(default=50, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -147,7 +174,7 @@ def get_accounts(
     If `year` is provided, balances are calculated as of the end of that year.
     """
     as_of = get_year_end(year) if year is not None else None
-    accounts_data = get_accounts_with_balance(db, current_user.id, account_type, as_of=as_of)
+    accounts_data = get_accounts_with_balance(db, current_user.id, account_type, as_of=as_of, skip=skip, limit=limit)
     return [TrxAccountWithBalance.model_validate(acc) for acc in accounts_data]
 
 # --- Category Endpoints ---
@@ -159,7 +186,14 @@ def create_category(category: TrxCategoryCreate, db: Session = Depends(get_db), 
     """
     new_category = prepare_category_for_db(category.model_dump(), current_user.id)
     db.add(new_category)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(new_category)
     return {"data": new_category, "message": "Category created successfully"}
 
@@ -171,7 +205,14 @@ def update_category(id: uuid.UUID, category_update: TrxCategoryCreate, db: Sessi
     category = validate_category(db, id, current_user.id)
     for key, value in category_update.model_dump().items():
         setattr(category, key, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(category)
     return {"data": category, "message": "Category updated successfully"}
 
@@ -183,7 +224,14 @@ def delete_category(id: uuid.UUID, db: Session = Depends(get_db), current_user: 
     category = validate_category(db, id, current_user.id)
     deleted_info = prepare_deleted_category_info(category)
     db.delete(category)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Category with id {id} deleted successfully", "deleted_item": deleted_info}
 
 @router.get("/categories", response_model=List[TrxCategoryResponseData])
@@ -231,6 +279,7 @@ def create_transaction(
     validate_transaction_category_match(tx.transaction_type, category)
 
     if tx.transaction_type == TransactionType.EXPENSE and account.type == TrxAccountType.CREDIT_CARD:
+        db.query(TrxAccount).filter(TrxAccount.id == account.id, TrxAccount.user_id == current_user.id).with_for_update().one()
         balance_details = calculate_account_balance(db, account.id, current_user.id)
         if balance_details["balance"] <= 0:
             raise HTTPException(
@@ -247,11 +296,24 @@ def create_transaction(
 
     # Handle receipt upload
     if receipt and receipt.filename:
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if receipt.size and receipt.size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large. Maximum size is 10MB."
+            )
         file_upload = upload_file_to_storage(db, receipt, current_user.id, prefix="receipts")
         new_transaction.receipt_file_id = file_upload.id
 
     db.add(new_transaction)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Transaction conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(new_transaction)
     return {"data": new_transaction, "message": "Transaction created successfully"}
 
@@ -301,6 +363,7 @@ def update_transaction(
         account.type == TrxAccountType.CREDIT_CARD and
         (existing_transaction.transaction_type != TransactionType.EXPENSE or tx.amount > existing_transaction.amount)
     ):
+        db.query(TrxAccount).filter(TrxAccount.id == account.id, TrxAccount.user_id == current_user.id).with_for_update().one()
         balance_details = calculate_account_balance(db, account.id, current_user.id)
         adjusted_balance = balance_details["balance"]
         if existing_transaction.transaction_type == TransactionType.EXPENSE and existing_transaction.account_id == tx.account_id:
@@ -322,6 +385,12 @@ def update_transaction(
         existing_transaction.receipt_file_id = None
 
     if receipt and receipt.filename:
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if receipt.size and receipt.size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large. Maximum size is 10MB."
+            )
         # Mark old receipt as orphan if replacing
         if existing_transaction.receipt_file_id:
             mark_orphan(db, existing_transaction.receipt_file_id)
@@ -332,7 +401,14 @@ def update_transaction(
     for key, value in tx_data.items():
         setattr(existing_transaction, key, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(existing_transaction)
     return {"data": existing_transaction, "message": "Transaction updated successfully"}
 
@@ -352,7 +428,14 @@ def delete_transaction(id: uuid.UUID, db: Session = Depends(get_db), current_use
 
     deleted_info = prepare_deleted_transaction_info(transaction)
     transaction_query.delete(synchronize_session=False)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     return {"message": f"Transaction with id {id} deleted successfully", "deleted_item": deleted_info}
 
 @router.get("/transactions", response_model=TransactionList)
@@ -362,7 +445,7 @@ def get_transactions(
     end_date: Optional[datetime] = None, date_filter_type: Optional[str] = None,
     timezone: str = FastAPIQuery(default="UTC"),
     order_by: str = 'created_at', sort_order: str = 'desc',
-    limit: int = FastAPIQuery(default=10, le=500), skip: int = 0,
+    limit: int = FastAPIQuery(default=10, le=500), skip: int = FastAPIQuery(default=0, ge=0),
     cursor: Optional[str] = None,
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
@@ -602,7 +685,7 @@ def get_account_summary(db: Session = Depends(get_db), current_user: User = Depe
 
 @router.post("/cleanup-guest-data")
 def cleanup_guest_data(
-    days: int = 30,
+    days: int = FastAPIQuery(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_non_guest_superuser),
 ):
@@ -646,7 +729,14 @@ def cleanup_guest_data(
             orphaned_files += 1
         db.delete(tx)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
 
     # Delete orphaned files from storage
     for f in receipt_files:

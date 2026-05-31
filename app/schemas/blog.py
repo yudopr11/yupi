@@ -14,7 +14,7 @@ class PostBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="Post title")
     content: str = Field(..., min_length=1, description="Post content in Markdown format")
     published: bool = Field(False, description="Is the post published?")
-    tags: Optional[List[str]] = Field(None, description="List of tags")
+    tags: Optional[List[str]] = Field(None, max_length=20, description="List of tags")
     excerpt: Optional[str] = Field(None, description="A short excerpt of the post")
 
 class PostCreate(PostBase):

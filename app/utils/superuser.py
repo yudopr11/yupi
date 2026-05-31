@@ -1,9 +1,13 @@
+import logging
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.models.auth import User
 from app.utils.auth import get_password_hash
 from app.core.config import settings
 
-def create_superuser(db: Session) -> None:
+logger = logging.getLogger(__name__)
+
+async def create_superuser(db: Session) -> None:
     """
     Create a superuser account if it doesn't already exist
     
@@ -33,9 +37,16 @@ def create_superuser(db: Session) -> None:
         superuser = User(
             username=settings.SUPERUSER_USERNAME,
             email=settings.SUPERUSER_EMAIL,
-            password=get_password_hash(settings.SUPERUSER_PASSWORD),
+            password=await get_password_hash(settings.SUPERUSER_PASSWORD),
             is_superuser=True
         )
         db.add(superuser)
-        db.commit()
-        print(f"Superuser '{settings.SUPERUSER_USERNAME}' created successfully!") 
+        try:
+            db.commit()
+            logger.info("Superuser '%s' created successfully!", settings.SUPERUSER_USERNAME)
+        except IntegrityError:
+            db.rollback()
+            logger.info("Superuser already exists, skipping")
+        except Exception:
+            db.rollback()
+            raise

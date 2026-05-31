@@ -66,3 +66,17 @@ def test_get_settings_none_key_returns_falsy():
     api_key = None
     masked = f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else bool(api_key)
     assert masked is False
+
+
+def test_mask_value_uses_real_function():
+    """Verify mask_value from crypto matches expected behavior."""
+    from app.utils.crypto import mask_value
+
+    # Long string: 6 chars front, 6 chars back
+    assert mask_value("abcdefghijklmnop") == "abcdef...klmnop"
+    # Short string: fully masked
+    assert mask_value("short") == "*****"
+    # None
+    assert mask_value(None) is None
+    # Empty
+    assert mask_value("") is None

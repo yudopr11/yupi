@@ -1,12 +1,16 @@
+import logging
 import boto3
 from botocore.config import Config
 from fastapi import UploadFile, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 from app.models.file import FileUpload
 from app.utils.uuid import uuid7
 
@@ -43,6 +47,30 @@ def validate_file(file: UploadFile) -> None:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"File type '{file.content_type}' not allowed. Allowed: {', '.join(ALLOWED_IMAGE_TYPES)}"
+        )
+
+    # Verify magic bytes match expected file signatures
+    try:
+        header = file.file.read(12)
+        file.file.seek(0)
+        valid_magic = (
+            header[:3] == b'\xff\xd8\xff' or          # JPEG
+            header[:4] == b'\x89PNG' or                # PNG
+            (header[:4] == b'RIFF' and header[8:12] == b'WEBP') or  # WebP
+            header[:4] == b'GIF8' or                   # GIF
+            header[:5] == b'%PDF-'                     # PDF
+        )
+        if not valid_magic:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="File content does not match a valid image or PDF format"
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unable to verify file content"
         )
 
 
@@ -99,16 +127,31 @@ def upload_file(
         is_orphan=False,
     )
     db.add(file_upload)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(file_upload)
     return file_upload
 
 
+def _stream_body(body):
+    try:
+        for chunk in body.iter_chunks(chunk_size=8192):
+            yield chunk
+    finally:
+        body.close()
+
+
 def download_file(file_upload: FileUpload):
-    """Download a file from RustFS."""
+    """Download a file from RustFS. Returns a generator that auto-closes the body."""
     s3 = get_s3_client()
     response = s3.get_object(Bucket=file_upload.bucket, Key=file_upload.storage_key)
-    return response["Body"]
+    return _stream_body(response["Body"])
 
 
 def delete_file_from_storage(storage_key: str, bucket: str) -> None:
@@ -117,7 +160,7 @@ def delete_file_from_storage(storage_key: str, bucket: str) -> None:
     try:
         s3.delete_object(Bucket=bucket, Key=storage_key)
     except Exception:
-        pass  # Best effort deletion
+        logger.warning(f"Failed to delete file from S3: {storage_key}", exc_info=True)
 
 
 def mark_orphan(db: Session, file_upload_id: uuid.UUID) -> Optional[FileUpload]:
@@ -134,12 +177,29 @@ def cleanup_orphans(db: Session) -> list[dict]:
     orphans = db.query(FileUpload).filter(FileUpload.is_orphan == True).all()
     deleted = []
     for f in orphans:
-        delete_file_from_storage(f.storage_key, f.bucket)
         deleted.append({
             "id": str(f.id),
             "storage_key": f.storage_key,
+            "bucket": f.bucket,
             "original_filename": f.original_filename,
         })
         db.delete(f)
-    db.commit()
+
+    # Commit DB deletions first so orphan markers are removed even if S3 fails
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict")
+    except Exception:
+        db.rollback()
+        raise
+
+    # Then attempt S3 cleanup — log failures but don't rollback the DB
+    for entry in deleted:
+        try:
+            delete_file_from_storage(entry["storage_key"], entry["bucket"])
+        except Exception:
+            logger.warning(f"Failed to delete orphaned file from S3: {entry['storage_key']}", exc_info=True)
+
     return deleted

@@ -1,4 +1,5 @@
 """TDD tests for crypto utility functions."""
+import json
 import pytest
 from app.utils.crypto import (
     encrypt_value,
@@ -84,15 +85,21 @@ def test_encrypt_decrypt_endpoint_roundtrip():
     assert data["url"] == "http://localhost:8000/mcp/abc"
 
 
-def test_decrypt_endpoint_legacy_plaintext():
-    """Legacy format: token is a plaintext URL string."""
+def test_decrypt_endpoint_legacy_plaintext_rejected():
+    """Legacy plaintext URLs are no longer accepted — returns None."""
     data = decrypt_endpoint("http://old-endpoint.com/mcp")
-    assert data["name"] == ""
-    assert data["url"] == "http://old-endpoint.com/mcp"
+    assert data is None
 
 
-def test_decrypt_endpoint_invalid_json():
-    """Invalid JSON falls back to legacy format."""
+def test_decrypt_endpoint_invalid_json_rejected():
+    """Invalid JSON is rejected — returns None."""
     data = decrypt_endpoint("not-json-at-all")
-    assert data["name"] == ""
-    assert data["url"] == "not-json-at-all"
+    assert data is None
+
+
+def test_decrypt_endpoint_json_without_url_key():
+    """Valid JSON but without 'url' key should return None."""
+    # Encrypt a JSON object that lacks the "url" key
+    token = encrypt_value(json.dumps({"name": "test", "other": "data"}))
+    data = decrypt_endpoint(token)
+    assert data is None

@@ -34,7 +34,10 @@ class TrxAccountType(str, enum.Enum):
 
 class TrxAccount(Base):
     __tablename__ = "cuan_accounts"
-    
+    __table_args__ = (
+        Index('ix_cuan_accounts_user_id', 'user_id'),
+    )
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     name = Column(String, nullable=False)
     type = Column(EnumAsString(TrxAccountType), nullable=False)

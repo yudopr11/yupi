@@ -1,7 +1,10 @@
 """Embedded MCP server for yupi. Mounts at /mcp/{base64(user:pass)}."""
 import base64
 import json
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -42,6 +45,7 @@ from app.mcp.tools import (
     update_post_impl,
     update_transaction_impl,
 )
+from app.core.config import settings
 from app.utils.auth import verify_password
 from app.utils.database import SessionLocal
 
@@ -51,8 +55,12 @@ from app.utils.database import SessionLocal
 
 mcp = FastMCP(
     "yupi",
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    # DNS rebinding protection disabled for local dev; enable in production via env flag
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=settings.MCP_DNS_REBINDING_PROTECTION),
 )
+
+if not settings.MCP_DNS_REBINDING_PROTECTION:
+    logger.warning("MCP DNS rebinding protection is DISABLED. Set MCP_DNS_REBINDING_PROTECTION=True in production.")
 
 
 # ---------------------------------------------------------------------------
@@ -365,12 +373,12 @@ def decode_mcp_token(token: str) -> Optional[tuple[str, str]]:
     return (username, password) if username else None
 
 
-def authenticate_for_mcp(db, username: str, password: str) -> Optional[User]:
+async def authenticate_for_mcp(db, username: str, password: str) -> Optional[User]:
     """Return User if credentials valid, else None."""
     user = db.query(User).filter(User.username == username).first()
     if not user:
         return None
-    if not verify_password(password, user.password):
+    if not await verify_password(password, user.password):
         return None
     return user
 
@@ -402,9 +410,11 @@ def create_mcp_asgi_app(inner_app=None):
         inner_app = mcp.streamable_http_app()
 
     async def auth_wrapper(scope, receive, send):
-        if scope["type"] != "http":
-            await inner_app(scope, receive, send)
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1003})
             return
+        if scope["type"] != "http":
+            return None
 
         path = scope.get("path", "")
 
@@ -422,7 +432,7 @@ def create_mcp_asgi_app(inner_app=None):
         username, password = creds
         db = SessionLocal()
         try:
-            user = authenticate_for_mcp(db, username, password)
+            user = await authenticate_for_mcp(db, username, password)
             if not user:
                 await _send_json_error(send, 401, "Invalid credentials")
                 return

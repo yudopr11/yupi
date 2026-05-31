@@ -142,12 +142,19 @@ def test_load_conversation_messages_assistant_with_tools():
 
     result = _load_conversation_messages(mock_db, uuid7())
 
-    assert len(result) == 1
+    # Should be 2 messages: assistant with tool_use + user with tool_result
+    assert len(result) == 2
+    # First: assistant message with text + tool_use content blocks
     content = result[0]["content"]
     assert result[0]["role"] == "assistant"
     assert content[0] == {"type": "text", "text": "Here are your accounts"}
     assert content[1]["type"] == "tool_use"
     assert content[1]["name"] == "get_accounts"
+    # Second: user message with tool_result content block
+    assert result[1]["role"] == "user"
+    tool_result = result[1]["content"][0]
+    assert tool_result["type"] == "tool_result"
+    assert str(tool_result["tool_use_id"]) == str(tc.id)
 
 
 def test_load_conversation_messages_skips_tool_role():

@@ -36,7 +36,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(..., description="Password reset token received in email")
-    new_password: str = Field(..., description="New password")
+    new_password: str = Field(..., min_length=8, description="New password")
 
 class ForgotPasswordResponse(BaseModel):
     message: str = Field(..., description="Response message")

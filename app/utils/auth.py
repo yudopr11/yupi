@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, UTC
 from typing import Tuple
+from uuid import uuid4
+import asyncio
+import time
 import jwt
 from jwt import PyJWTError as JWTError
 import bcrypt
@@ -20,42 +23,45 @@ PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUT
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain text password against a hashed password
-    
+
     This function uses bcrypt to securely compare a plain text password
     with a previously hashed password.
-    
+
     Args:
         plain_password (str): The plain text password to verify
         hashed_password (str): The hashed password to compare against
-        
+
     Returns:
         bool: True if the passwords match, False otherwise
     """
-    return bcrypt.checkpw(
+    return await asyncio.to_thread(
+        bcrypt.checkpw,
         plain_password.encode('utf-8'),
         hashed_password.encode('utf-8')
     )
 
-def get_password_hash(password: str) -> str:
+async def get_password_hash(password: str) -> str:
     """
     Generate a secure hash of a password
-    
+
     This function uses bcrypt to generate a cryptographically secure
     hash of the provided password.
-    
+
     Args:
         password (str): The plain text password to hash
-        
+
     Returns:
         str: The hashed password
     """
-    return bcrypt.hashpw(
-        password.encode('utf-8'), 
-        bcrypt.gensalt()
-    ).decode('utf-8')
+    def _hash():
+        return bcrypt.hashpw(
+            password.encode('utf-8'),
+            bcrypt.gensalt()
+        ).decode('utf-8')
+    return await asyncio.to_thread(_hash)
 
 def create_token(data: dict, expires_delta: timedelta, token_type: str = "access") -> str:
     """
@@ -77,7 +83,8 @@ def create_token(data: dict, expires_delta: timedelta, token_type: str = "access
     expire = datetime.now(UTC) + expires_delta
     to_encode.update({
         "exp": expire,
-        "type": token_type
+        "type": token_type,
+        "iat": int(time.time())
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -105,7 +112,7 @@ def create_tokens(username: str) -> Tuple[str, str]:
     
     # Create refresh token
     refresh_token = create_token(
-        data={"sub": username},
+        data={"sub": username, "jti": str(uuid4())},
         expires_delta=timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         token_type="refresh"
     )

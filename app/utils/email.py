@@ -1,8 +1,11 @@
+import logging
 from fastapi import BackgroundTasks
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from pydantic import EmailStr
 from app.core.config import settings
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 # Email configuration
 mail_conf = ConnectionConfig(
@@ -51,9 +54,13 @@ async def send_email_async(
     fm = FastMail(mail_conf)
     
     # Send email in the background
-    background_tasks.add_task(
-        fm.send_message, message
-    )
+    async def _safe_send():
+        try:
+            await fm.send_message(message)
+        except Exception:
+            logger.exception("Failed to send email")
+
+    background_tasks.add_task(_safe_send)
 
 async def send_password_reset_email(
     email: EmailStr, 

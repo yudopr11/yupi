@@ -2,8 +2,11 @@
 import json
 import base64
 import hashlib
+import logging
 from cryptography.fernet import Fernet
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _fernet: Fernet | None = None
 
@@ -38,13 +41,13 @@ def encrypt_endpoint(name: str, url: str) -> str:
     return encrypt_value(json.dumps({"name": name, "url": url}))
 
 
-def decrypt_endpoint(token: str) -> dict:
-    """Decrypt endpoint, returns {name, url}. Falls back to legacy format."""
+def decrypt_endpoint(token: str) -> dict | None:
+    """Decrypt endpoint, returns {name, url}. Returns None if decryption fails."""
     try:
         data = json.loads(decrypt_value(token))
         if isinstance(data, dict) and "url" in data:
             return {"name": data.get("name", ""), "url": data["url"]}
-    except (json.JSONDecodeError, Exception):
-        pass
-    # Legacy: token is a plaintext URL string
-    return {"name": "", "url": token}
+        logger.warning("Decrypted token missing 'url' key, rejecting")
+    except Exception:
+        logger.warning("Failed to decrypt endpoint token, rejecting")
+        return None

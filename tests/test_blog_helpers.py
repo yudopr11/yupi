@@ -157,6 +157,8 @@ def test_fallback_excerpt_empty_content():
 
 def test_generate_post_content_returns_excerpt_and_tags():
     from app.utils.blog_helpers import generate_post_content
+    import app.utils.blog_helpers as _bh
+    _bh._openai_client = None
 
     mock_response = MagicMock()
     mock_response.choices[0].message.content = '{"excerpt": "Test excerpt", "tags": ["Python", "Testing"]}'
@@ -171,6 +173,8 @@ def test_generate_post_content_returns_excerpt_and_tags():
 
 def test_generate_post_content_api_failure_returns_fallback():
     from app.utils.blog_helpers import generate_post_content
+    import app.utils.blog_helpers as _bh
+    _bh._openai_client = None
 
     with patch("app.utils.blog_helpers.OpenAI") as MockOpenAI:
         MockOpenAI.return_value.chat.completions.create.side_effect = Exception("API error")
@@ -192,6 +196,8 @@ def test_generate_post_content_neither_needed_returns_early():
 
 def test_generate_embedding_returns_vector():
     from app.utils.blog_helpers import generate_embedding
+    import app.utils.blog_helpers as _bh
+    _bh._openai_client = None
 
     mock_response = MagicMock()
     mock_response.data[0].embedding = [0.1] * 1536
@@ -213,6 +219,8 @@ def test_generate_embedding_empty_text_returns_zero_vector():
 
 def test_generate_embedding_api_failure_returns_zero_vector():
     from app.utils.blog_helpers import generate_embedding
+    import app.utils.blog_helpers as _bh
+    _bh._openai_client = None
 
     with patch("app.utils.blog_helpers.OpenAI") as MockOpenAI:
         MockOpenAI.return_value.embeddings.create.side_effect = Exception("API error")
@@ -235,3 +243,10 @@ def test_generate_post_embedding_combines_title_and_excerpt():
 
     mock_embed.assert_called_once_with("My Title My Excerpt")
     assert result == [0.5] * 1536
+
+
+def test_generate_slug_empty_string():
+    """generate_slug should handle empty string without crashing."""
+    from app.utils.blog_helpers import generate_slug
+    result = generate_slug("")
+    assert isinstance(result, str)
