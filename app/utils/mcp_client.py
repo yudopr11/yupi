@@ -117,13 +117,10 @@ class _PooledConnection:
         """Create new connection. Must hold _lock."""
         stack = AsyncExitStack()
         try:
-            # Resolve DNS once, validate, then connect with resolved IP to prevent DNS rebinding
-            resolved_ip = validate_mcp_endpoint(self.endpoint)
-            parsed = urlparse(self.endpoint)
-            # Build IP-based URL, preserving port and path
-            ip_url = f"{parsed.scheme}://{resolved_ip}:{parsed.port or (443 if parsed.scheme == 'https' else 80)}{parsed.path or ''}"
+            # Validate DNS resolution (blocks private IPs) but connect to domain for SSL cert matching
+            validate_mcp_endpoint(self.endpoint)
             read_stream, write_stream, _ = await stack.enter_async_context(
-                streamablehttp_client(ip_url)
+                streamablehttp_client(self.endpoint)
             )
             client = await stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
@@ -217,14 +214,17 @@ class MCPPool:
             for ep in to_remove:
                 await user_conns.pop(ep)._close_internal()
 
-        # Connect to any new endpoints
+        # Connect to any new endpoints (skip failures)
         for ep in endpoints:
             async with self._lock:
                 conn = self._pool[user_id].get(ep)
                 if conn is None:
                     conn = _PooledConnection(ep)
                     self._pool[user_id][ep] = conn
-            await conn.ensure_connected()
+            try:
+                await conn.ensure_connected()
+            except Exception:
+                logger.warning("Failed to connect to MCP endpoint %s, skipping", ep)
 
         # Collect all tools and connections
         conn_map: dict[str, _PooledConnection] = {}

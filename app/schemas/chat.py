@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 from uuid import UUID
 
@@ -19,7 +19,7 @@ class ToolCallResponse(BaseModel):
     id: UUID
     tool_name: str
     arguments: Optional[dict] = None
-    result: Optional[dict] = None
+    result: Optional[Any] = None
     status: str
     error_message: Optional[str] = None
     created_at: datetime

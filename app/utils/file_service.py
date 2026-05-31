@@ -23,9 +23,12 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 def get_s3_client():
     """Create an S3 client connected to RustFS."""
+    endpoint = settings.RUSTFS_ENDPOINT
+    if endpoint and not endpoint.startswith(("http://", "https://")):
+        endpoint = f"http://{endpoint}"
     return boto3.client(
         "s3",
-        endpoint_url=settings.RUSTFS_ENDPOINT,
+        endpoint_url=endpoint,
         aws_access_key_id=settings.RUSTFS_ACCESS_KEY,
         aws_secret_access_key=settings.RUSTFS_SECRET_KEY,
         region_name=settings.RUSTFS_REGION,

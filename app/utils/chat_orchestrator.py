@@ -3,7 +3,7 @@ import json
 import inspect
 import logging
 from datetime import datetime, UTC
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Union, get_origin, get_args
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,12 @@ def _build_local_tool_definitions() -> list[dict]:
         for param_name, param in sig.parameters.items():
             prop = {}
             annotation = hints.get(param_name)
+            # Unwrap Optional[X] → X
+            origin = get_origin(annotation)
+            if origin is Union:
+                args = [a for a in get_args(annotation) if a is not type(None)]
+                if len(args) == 1:
+                    annotation = args[0]
             if annotation == str:
                 prop["type"] = "string"
             elif annotation == int:
@@ -85,7 +91,7 @@ def _build_local_tool_definitions() -> list[dict]:
                 prop["type"] = "number"
             elif annotation == bool:
                 prop["type"] = "boolean"
-            elif annotation == list[str]:
+            elif annotation == list[str] or annotation is list[str]:
                 prop["type"] = "array"
                 prop["items"] = {"type": "string"}
             elif annotation == dict:
@@ -152,7 +158,8 @@ async def run_chat(
     use_remote = conn_map is not None
 
     if use_remote:
-        tools = remote_tools or []
+        local_defs = _build_local_tool_definitions()
+        tools = list(remote_tools or []) + local_defs
     else:
         tools = _build_local_tool_definitions()
 
@@ -188,7 +195,9 @@ async def run_chat(
                     elif event.type == "content_block_stop":
                         pass
         except Exception as e:
+            logger.exception("MiMo streaming error")
             yield {"type": "error", "detail": str(e)}
+            yield {"type": "done"}
             return
 
         # Parse tool inputs
@@ -227,7 +236,8 @@ async def run_chat(
                 if conn:
                     result_str = await conn.call_tool_with_retry(tu["name"], tu["input"])
                 else:
-                    result_str = json.dumps({"error": f"No session for tool: {tu['name']}"})
+                    # Tool not in remote map — try local fallback
+                    result_str = await _execute_local_tool(tu["name"], tu["input"], user, db)
             else:
                 result_str = await _execute_local_tool(tu["name"], tu["input"], user, db)
 
@@ -243,6 +253,9 @@ async def run_chat(
             })
 
         conversation_messages.append({"role": "user", "content": tool_results})
+
+        # Signal that this tool round should be persisted before continuing
+        yield {"type": "persist"}
 
     # Max loops reached
     yield {"type": "error", "detail": f"Max tool call loops ({MAX_TOOL_LOOPS}) reached"}

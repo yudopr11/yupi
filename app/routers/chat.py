@@ -192,6 +192,34 @@ async def chat(
         assistant_content = ""
         tool_calls_data = []
 
+        def _save_round(content: str, tool_calls: list[dict]) -> str | None:
+            """Save one assistant message + its tool calls. Returns message ID or None on error."""
+            assistant_msg = ChatMessage(
+                conversation_id=UUID(conversation_id),
+                role="assistant",
+                content=content,
+            )
+            db.add(assistant_msg)
+            db.flush()
+            now = datetime.now(UTC)
+            for tc in tool_calls:
+                tool_call = ToolCall(
+                    message_id=assistant_msg.id,
+                    tool_name=tc["name"],
+                    arguments=tc["arguments"],
+                    result=tc["result"],
+                    status="completed" if tc["result"] is not None else "error",
+                    completed_at=now,
+                )
+                db.add(tool_call)
+            try:
+                db.flush()
+            except Exception:
+                db.rollback()
+                logging.exception("Failed to save tool round")
+                return None
+            return str(assistant_msg.id)
+
         async for event in run_chat(history, mimo, current_user, db, conn_map, remote_tools):
             if event["type"] == "text":
                 assistant_content += event["content"]
@@ -206,49 +234,55 @@ async def chat(
                 yield f"event: tool_end\ndata: {json.dumps({'id': event['id'], 'name': event['name'], 'result': event['result']})}\n\n"
             elif event["type"] == "error":
                 yield f"event: error\ndata: {json.dumps({'detail': event['detail']})}\n\n"
-            elif event["type"] == "done":
-                # Save assistant message + tool calls to DB
-                assistant_msg = ChatMessage(
-                    conversation_id=UUID(conversation_id),
-                    role="assistant",
-                    content=assistant_content,
-                )
-                db.add(assistant_msg)
-                now = datetime.now(UTC)
-                for tc in tool_calls_data:
-                    tool_call = ToolCall(
-                        message_id=assistant_msg.id,
-                        tool_name=tc["name"],
-                        arguments=tc["arguments"],
-                        result=tc["result"],
-                        status="completed" if tc["result"] is not None else "error",
-                        completed_at=now,
-                    )
-                    db.add(tool_call)
+            elif event["type"] == "persist":
+                # Save this tool round as a separate assistant message
+                msg_id = _save_round(assistant_content, tool_calls_data)
+                if msg_id is None:
+                    yield f"event: error\ndata: {json.dumps({'detail': 'Failed to save conversation'})}\n\n"
+                    return
                 try:
-                    db.flush()
                     db.commit()
                 except Exception:
                     db.rollback()
-                    logging.exception("Failed to save conversation")
+                    logging.exception("Failed to commit tool round")
                     yield f"event: error\ndata: {json.dumps({'detail': 'Failed to save conversation'})}\n\n"
                     return
-                yield f"event: done\ndata: {json.dumps({'conversation_id': conversation_id, 'message_id': str(assistant_msg.id)})}\n\n"
+                yield f"event: tool_round_saved\ndata: {json.dumps({'message_id': msg_id})}\n\n"
+                # Reset accumulators for next round
+                assistant_content = ""
+                tool_calls_data = []
+            elif event["type"] == "done":
+                # Final round — save remaining content (may be empty if last round was tools)
+                if assistant_content or tool_calls_data:
+                    msg_id = _save_round(assistant_content, tool_calls_data)
+                    if msg_id is None:
+                        yield f"event: error\ndata: {json.dumps({'detail': 'Failed to save conversation'})}\n\n"
+                        return
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    logging.exception("Failed to commit conversation")
+                    yield f"event: error\ndata: {json.dumps({'detail': 'Failed to save conversation'})}\n\n"
+                    return
+                yield f"event: done\ndata: {json.dumps({'conversation_id': conversation_id})}\n\n"
 
     async def event_stream():
         try:
+            conn_map = None
+            remote_tools = None
             if mcp_endpoints:
-                result = await mcp_pool.get_sessions(str(current_user.id), mcp_endpoints)
-                if result:
-                    conn_map, remote_tools = result
-                    async for chunk in _stream_events(conn_map, remote_tools):
-                        yield chunk
-                else:
-                    async for chunk in _stream_events(None):
-                        yield chunk
-            else:
-                async for chunk in _stream_events(None):
-                    yield chunk
+                try:
+                    result = await mcp_pool.get_sessions(str(current_user.id), mcp_endpoints)
+                    if result:
+                        conn_map, remote_tools = result
+                    else:
+                        logger.warning("MCP pool returned no sessions, falling back to local tools")
+                except Exception:
+                    logger.exception("MCP connection failed, falling back to local tools")
+
+            async for chunk in _stream_events(conn_map, remote_tools):
+                yield chunk
         except Exception as e:
             try:
                 db.rollback()
@@ -256,6 +290,7 @@ async def chat(
                 logger.exception("Error during rollback")
             logging.exception("Chat stream error")
             yield f"event: error\ndata: {json.dumps({'detail': 'An internal error occurred'})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'conversation_id': None, 'message_id': None})}\n\n"
 
     return StreamingResponse(
         event_stream(),

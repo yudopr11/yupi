@@ -390,6 +390,11 @@ async def create_post_impl(
     else:
         raise RuntimeError("Could not generate unique slug")
 
+    # Generate embedding before creating post (single commit)
+    embedding = None
+    if final_excerpt:
+        embedding = await asyncio.to_thread(generate_post_embedding, title, final_excerpt)
+
     post = Post(
         title=title,
         slug=slug,
@@ -399,6 +404,7 @@ async def create_post_impl(
         published=published,
         reading_time=calculate_reading_time(content),
         user_id=_user().id,
+        embedding=embedding,
     )
     db.add(post)
     try:
@@ -410,18 +416,6 @@ async def create_post_impl(
         db.rollback()
         raise
     db.refresh(post)
-
-    if post.excerpt:
-        post.embedding = await asyncio.to_thread(generate_post_embedding, post.title, post.excerpt)
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise
-        except Exception:
-            db.rollback()
-            raise
-        db.refresh(post)
 
     return _serialize_post(post)
 
