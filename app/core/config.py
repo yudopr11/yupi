@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 15
 
     # Superuser credentials
-    SUPERUSER_USERNAME: str
+    SUPERUSER_USERNAME: str = "admin"
     SUPERUSER_EMAIL: str = "admin@example.com"
-    SUPERUSER_PASSWORD: str
+    SUPERUSER_PASSWORD: str = "admin123"
 
     # Cookie settings
     COOKIE_SECURE: bool = False  # Set True in production (requires HTTPS)
