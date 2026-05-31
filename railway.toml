@@ -3,7 +3,7 @@ builder = "railpack"
 buildCommand = "uv sync"
 
 [deploy]
-startCommand = "uv run alembic upgrade head && uv run python scripts/update_embeddings.py && uv run uvicorn app.main:app --host '' --port $PORT"
+startCommand = "uv run alembic upgrade head && (uv run python scripts/update_embeddings.py || true) && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
