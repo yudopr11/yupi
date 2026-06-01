@@ -462,3 +462,34 @@ def test_calculate_date_range_valid_timezone():
     from app.utils.cuan_helpers import calculate_date_range
     start, end = calculate_date_range("day", "Asia/Jakarta")
     assert start.tzinfo is not None
+
+
+# ---------------------------------------------------------------------------
+# date_trunc with timezone (AT TIME ZONE in trends query)
+# ---------------------------------------------------------------------------
+
+def test_date_trunc_with_timezone_compiles_at_time_zone():
+    """Verify date_trunc expression includes AT TIME ZONE for user's timezone."""
+    from sqlalchemy import func
+    from app.models.cuan import Transaction
+
+    timezone = "Asia/Jakarta"
+    group_by = "day"
+    tz_expr = Transaction.transaction_date.op("AT TIME ZONE")(timezone).op("AT TIME ZONE")("UTC")
+    date_trunc = func.date_trunc(group_by, tz_expr)
+
+    compiled = date_trunc.compile(compile_kwargs={"literal_binds": True})
+    sql_str = str(compiled)
+    assert "AT TIME ZONE" in sql_str
+    assert "Asia/Jakarta" in sql_str
+
+
+def test_date_trunc_without_timezone_no_at_time_zone():
+    """Verify the old (buggy) expression does NOT include AT TIME ZONE."""
+    from sqlalchemy import func
+    from app.models.cuan import Transaction
+
+    date_trunc = func.date_trunc("day", Transaction.transaction_date)
+    compiled = date_trunc.compile(compile_kwargs={"literal_binds": True})
+    sql_str = str(compiled)
+    assert "AT TIME ZONE" not in sql_str

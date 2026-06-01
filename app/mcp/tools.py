@@ -1118,7 +1118,8 @@ async def get_trends_impl(
         sd, ed = calculate_date_range(period, timezone)
 
     tx_types = transaction_types or ["income", "expense"]
-    date_trunc = func.date_trunc(group_by, Transaction.transaction_date)
+    tz_expr = Transaction.transaction_date.op("AT TIME ZONE")(timezone).op("AT TIME ZONE")("UTC")
+    date_trunc = func.date_trunc(group_by, tz_expr)
     results = db.query(
         date_trunc.label("date"),
         Transaction.transaction_type,
