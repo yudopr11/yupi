@@ -910,6 +910,9 @@ async def update_transaction_impl(
     category_id: Optional[str] = None,
     destination_account_id: Optional[str] = None,
     transfer_fee: Optional[float] = None,
+    base64_image: Optional[str] = None,
+    media_type: Optional[str] = None,
+    remove_receipt: bool = False,
 ) -> dict:
     user = _user()
     db = _db()
@@ -940,6 +943,35 @@ async def update_transaction_impl(
             adjusted_balance += float(tx.amount)
         if adjusted_balance - amount < 0:
             raise ValueError("Insufficient credit card balance for this update. Please top up the account.")
+
+    # Handle receipt changes
+    if remove_receipt and tx.receipt_file_id:
+        from app.utils.file_service import mark_orphan
+        mark_orphan(db, tx.receipt_file_id)
+        tx.receipt_file_id = None
+
+    if base64_image and media_type:
+        allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif"}
+        if media_type not in allowed_types:
+            raise ValueError(f"Unsupported image type: {media_type}")
+        try:
+            image_bytes = _b64.b64decode(base64_image)
+        except Exception:
+            raise ValueError("Invalid base64 image data")
+        if len(image_bytes) > 10 * 1024 * 1024:
+            raise ValueError("Image exceeds 10MB limit")
+        from starlette.datastructures import Headers as _Headers
+        ext = mimetypes.guess_extension(media_type) or ".jpg"
+        if ext == ".jpe":
+            ext = ".jpg"
+        headers = _Headers(raw=[(b"content-type", media_type.encode())])
+        upload = UploadFile(filename=f"receipt{ext}", file=io.BytesIO(image_bytes), headers=headers)
+        # Mark old receipt as orphan if replacing
+        if tx.receipt_file_id:
+            from app.utils.file_service import mark_orphan
+            mark_orphan(db, tx.receipt_file_id)
+        file_upload = upload_file_to_storage(db, upload, user.id, prefix="receipts")
+        tx.receipt_file_id = file_upload.id
 
     tx.transaction_date = datetime.fromisoformat(transaction_date)
     tx.description = description

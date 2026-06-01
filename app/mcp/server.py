@@ -264,7 +264,7 @@ async def create_transaction_from_receipt(
     destination_account_id: Optional[str] = None,
     transfer_fee: Optional[float] = None,
 ) -> dict:
-    """Create a transaction with a receipt image. Use when the user sends a receipt/photo and wants to record it as a transaction. base64_image: raw base64 (no data: prefix). media_type: e.g. image/jpeg. transaction_type: income|expense|transfer. transaction_date: ISO 8601 with time."""
+    """Create a transaction with a receipt image. Use when the user sends a receipt/photo and wants to record it as a transaction. base64_image and media_type are auto-injected from the conversation image — do not pass them. transaction_type: income|expense|transfer. transaction_date: ISO 8601 with time."""
     return await create_transaction_from_receipt_impl(
         base64_image, media_type, transaction_date, description, amount,
         transaction_type, account_id, category_id, destination_account_id, transfer_fee,
@@ -282,11 +282,16 @@ async def update_transaction(
     category_id: Optional[str] = None,
     destination_account_id: Optional[str] = None,
     transfer_fee: Optional[float] = None,
+    base64_image: Optional[str] = None,
+    media_type: Optional[str] = None,
+    remove_receipt: bool = False,
 ) -> dict:
-    """Update a transaction by UUID. transaction_date must be ISO 8601 with time (e.g. 2026-05-28T14:30:00+00:00)."""
+    """Update a transaction by UUID. transaction_date must be ISO 8601 with time (e.g. 2026-05-28T14:30:00+00:00).
+    To add/replace receipt, do not pass base64_image — the system auto-injects it from the conversation image. To remove receipt, set remove_receipt=true."""
     return await update_transaction_impl(
         transaction_id, transaction_date, description, amount,
         transaction_type, account_id, category_id, destination_account_id, transfer_fee,
+        base64_image, media_type, remove_receipt,
     )
 
 

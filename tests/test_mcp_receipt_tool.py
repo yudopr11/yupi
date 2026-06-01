@@ -247,3 +247,141 @@ async def test_create_transaction_from_receipt_invalid_account():
                 )
     finally:
         reset_context(t1, t2)
+
+
+@pytest.mark.asyncio
+async def test_update_transaction_add_receipt():
+    """update_transaction_impl sets receipt_file_id when base64_image is provided."""
+    from app.mcp.tools import update_transaction_impl
+
+    user = make_user()
+    account = make_account(user_id=user.id)
+    category = make_category(user_id=user.id)
+    mock_db = MagicMock()
+    file_upload = make_file_upload(user_id=user.id)
+
+    # Existing transaction with no receipt
+    existing_tx = make_transaction(user_id=user.id, receipt_file_id=None)
+    existing_tx.transaction_type = MagicMock()
+    existing_tx.transaction_type.value = "expense"
+    existing_tx.transaction_type.__eq__ = lambda self, other: True
+    mock_db.query.return_value.filter.return_value.first.return_value = existing_tx
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        with (
+            patch("app.mcp.tools.upload_file_to_storage", return_value=file_upload),
+            patch("app.mcp.tools.validate_account", return_value=account),
+            patch("app.mcp.tools.validate_category", return_value=category),
+            patch("app.mcp.tools.validate_transaction_category_match"),
+            patch("app.mcp.tools.validate_transfer"),
+            patch("app.mcp.tools.calculate_account_balance", return_value={"balance": 1000.0}),
+        ):
+            result = await update_transaction_impl(
+                transaction_id=str(existing_tx.id),
+                transaction_date="2026-06-01T12:00:00",
+                description="Updated with receipt",
+                amount=30.00,
+                transaction_type="expense",
+                account_id=str(account.id),
+                category_id=str(category.id),
+                base64_image=valid_base64_image(),
+                media_type="image/jpeg",
+            )
+            assert existing_tx.receipt_file_id == file_upload.id
+            mock_db.commit.assert_called_once()
+    finally:
+        reset_context(t1, t2)
+
+
+@pytest.mark.asyncio
+async def test_update_transaction_replace_receipt():
+    """update_transaction_impl marks old receipt as orphan when replacing."""
+    from app.mcp.tools import update_transaction_impl
+
+    user = make_user()
+    account = make_account(user_id=user.id)
+    category = make_category(user_id=user.id)
+    mock_db = MagicMock()
+    old_file_id = uuid7()
+    new_file_upload = make_file_upload(user_id=user.id)
+
+    # Existing transaction with an old receipt
+    existing_tx = make_transaction(user_id=user.id, receipt_file_id=old_file_id)
+    existing_tx.transaction_type = MagicMock()
+    existing_tx.transaction_type.value = "expense"
+    existing_tx.transaction_type.__eq__ = lambda self, other: True
+    mock_db.query.return_value.filter.return_value.first.return_value = existing_tx
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        with (
+            patch("app.utils.file_service.mark_orphan") as mock_mark_orphan,
+            patch("app.mcp.tools.upload_file_to_storage", return_value=new_file_upload),
+            patch("app.mcp.tools.validate_account", return_value=account),
+            patch("app.mcp.tools.validate_category", return_value=category),
+            patch("app.mcp.tools.validate_transaction_category_match"),
+            patch("app.mcp.tools.validate_transfer"),
+            patch("app.mcp.tools.calculate_account_balance", return_value={"balance": 1000.0}),
+        ):
+            result = await update_transaction_impl(
+                transaction_id=str(existing_tx.id),
+                transaction_date="2026-06-01T12:00:00",
+                description="Replaced receipt",
+                amount=30.00,
+                transaction_type="expense",
+                account_id=str(account.id),
+                category_id=str(category.id),
+                base64_image=valid_base64_image(),
+                media_type="image/jpeg",
+            )
+            mock_mark_orphan.assert_called_once_with(mock_db, old_file_id)
+            assert existing_tx.receipt_file_id == new_file_upload.id
+            mock_db.commit.assert_called_once()
+    finally:
+        reset_context(t1, t2)
+
+
+@pytest.mark.asyncio
+async def test_update_transaction_remove_receipt():
+    """update_transaction_impl clears receipt_file_id when remove_receipt=True."""
+    from app.mcp.tools import update_transaction_impl
+
+    user = make_user()
+    account = make_account(user_id=user.id)
+    category = make_category(user_id=user.id)
+    mock_db = MagicMock()
+    existing_file_id = uuid7()
+
+    # Existing transaction with a receipt
+    existing_tx = make_transaction(user_id=user.id, receipt_file_id=existing_file_id)
+    existing_tx.transaction_type = MagicMock()
+    existing_tx.transaction_type.value = "expense"
+    existing_tx.transaction_type.__eq__ = lambda self, other: True
+    mock_db.query.return_value.filter.return_value.first.return_value = existing_tx
+
+    t1, t2 = setup_context(user, mock_db)
+    try:
+        with (
+            patch("app.utils.file_service.mark_orphan") as mock_mark_orphan,
+            patch("app.mcp.tools.validate_account", return_value=account),
+            patch("app.mcp.tools.validate_category", return_value=category),
+            patch("app.mcp.tools.validate_transaction_category_match"),
+            patch("app.mcp.tools.validate_transfer"),
+            patch("app.mcp.tools.calculate_account_balance", return_value={"balance": 1000.0}),
+        ):
+            result = await update_transaction_impl(
+                transaction_id=str(existing_tx.id),
+                transaction_date="2026-06-01T12:00:00",
+                description="Removed receipt",
+                amount=30.00,
+                transaction_type="expense",
+                account_id=str(account.id),
+                category_id=str(category.id),
+                remove_receipt=True,
+            )
+            mock_mark_orphan.assert_called_once_with(mock_db, existing_file_id)
+            assert existing_tx.receipt_file_id is None
+            mock_db.commit.assert_called_once()
+    finally:
+        reset_context(t1, t2)

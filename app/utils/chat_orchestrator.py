@@ -5,6 +5,25 @@ import logging
 from datetime import datetime, UTC
 from typing import AsyncGenerator, Union, get_origin, get_args
 
+
+def _extract_latest_user_image(messages: list[dict]) -> tuple[str, str] | None:
+    """Find the most recent user message with an image content block.
+
+    Returns (base64_data, media_type) or None.
+    """
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "image":
+                source = block.get("source", {})
+                if source.get("type") == "base64":
+                    return source.get("data", ""), source.get("media_type", "image/jpeg")
+    return None
+
 logger = logging.getLogger(__name__)
 
 from app.mcp.context import _current_db_var, _current_user_var
@@ -61,8 +80,9 @@ Rules:
 When the user sends an image of a receipt/bill:
 1. Identify the items, prices, subtotal, tax, service charge, and total from the image
 2. Ask the user which account and category to use if not clear
-3. Call create_transaction_from_receipt with the base64 image data and extracted transaction details
+3. Call create_transaction_from_receipt with the extracted transaction details (description, amount, transaction_type, account_id, category_id, transaction_date). Do NOT pass base64_image or media_type — the system auto-injects the image from the conversation.
 4. Confirm the created transaction to the user
+5. If the user wants to add or replace a receipt on an existing transaction, use update_transaction with the transaction details. Do NOT pass base64_image — the system auto-injects it. To remove a receipt, set remove_receipt=true.
 
 # TODO: PDF receipt support — when user sends PDF:
 #   - Tool will parse PDF server-side (pymupdf) and return extracted text
@@ -243,6 +263,16 @@ async def run_chat(
         # Execute tools and build tool_result messages
         tool_results = []
         for tu in tool_uses:
+            # Auto-inject image from conversation for receipt tools
+            if tu["name"] in ("create_transaction_from_receipt", "update_transaction"):
+                args = tu["input"]
+                if not args.get("base64_image"):
+                    img = _extract_latest_user_image(conversation_messages)
+                    if img:
+                        args["base64_image"] = img[0]
+                        args["media_type"] = img[1]
+                        tu["input"] = args
+
             yield {"type": "tool_start", "id": tu["id"], "name": tu["name"], "arguments": tu["input"]}
 
             if use_remote:
