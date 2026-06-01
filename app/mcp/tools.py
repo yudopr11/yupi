@@ -1,11 +1,15 @@
 """MCP tool implementations — call DB/services directly, no HTTP."""
 import asyncio
+import base64 as _b64
+import io
 import mimetypes
 import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
+
+from fastapi import UploadFile
 
 from sqlalchemy import desc, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -31,6 +35,7 @@ from app.utils.blog_helpers import (
     search_posts_by_embedding,
 )
 from app.utils.common import escape_like
+from app.utils.file_service import upload_file as upload_file_to_storage
 from app.utils.cuan_helpers import (
     calculate_account_balance,
     calculate_date_range,
@@ -782,6 +787,106 @@ async def create_transaction_impl(
         "transfer_fee": Decimal(str(transfer_fee)) if transfer_fee else Decimal("0"),
     }
     tx = prepare_transaction_for_db(data, user.id)
+    db.add(tx)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(tx)
+    return _serialize_transaction(tx)
+
+
+# TODO: PDF receipt support — when user sends PDF receipt in chat:
+#   1. Accept application/pdf in allowed_types
+#   2. Parse PDF with pymupdf (fitz) to extract text/items
+#   3. Store the original PDF in RustFS (same as image flow)
+#   4. Create transaction with receipt_file_id
+#   Deps: uv add pymupdf
+#   Flow: base64 PDF → decode → pymupdf open → extract text → store PDF → create tx
+#   Note: MiMo can't read PDF natively, so parse text server-side and pass to LLM as context
+
+async def create_transaction_from_receipt_impl(
+    base64_image: str,
+    media_type: str,
+    transaction_date: str,
+    description: str,
+    amount: float,
+    transaction_type: str,
+    account_id: str,
+    category_id: Optional[str] = None,
+    destination_account_id: Optional[str] = None,
+    transfer_fee: Optional[float] = None,
+) -> dict:
+    """Create a transaction with a receipt image attached.
+
+    base64_image: raw base64 string (no data: prefix).
+    media_type: e.g. image/jpeg, image/png.
+    """
+    user = _user()
+    db = _db()
+
+    # Validate media type
+    allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif"}
+    if media_type not in allowed_types:
+        raise ValueError(f"Unsupported image type: {media_type}")
+
+    # Decode base64 image
+    try:
+        image_bytes = _b64.b64decode(base64_image)
+    except Exception:
+        raise ValueError("Invalid base64 image data")
+
+    # Size check (10MB)
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise ValueError("Image exceeds 10MB limit")
+
+    # Create UploadFile for storage service
+    from starlette.datastructures import Headers as _Headers
+    ext = mimetypes.guess_extension(media_type) or ".jpg"
+    if ext == ".jpe":
+        ext = ".jpg"
+    headers = _Headers(raw=[(b"content-type", media_type.encode())])
+    upload = UploadFile(filename=f"receipt{ext}", file=io.BytesIO(image_bytes), headers=headers)
+
+    # Upload to RustFS
+    file_upload = upload_file_to_storage(db, upload, user.id, prefix="receipts")
+
+    # Validate transaction fields
+    aid = uuid.UUID(account_id)
+    cid = uuid.UUID(category_id) if category_id else None
+    did = uuid.UUID(destination_account_id) if destination_account_id else None
+    tx_type = TransactionType(transaction_type.lower())
+
+    account = validate_account(db, aid, user.id)
+    category = validate_category(db, cid, user.id)
+    validate_transaction_category_match(tx_type, category)
+    validate_transfer(tx_type, did, aid, Decimal(str(transfer_fee or 0)), db, user.id)
+
+    # Credit card balance check
+    if tx_type == TransactionType.EXPENSE and account.type == TrxAccountType.CREDIT_CARD:
+        balance_details = calculate_account_balance(db, aid, user.id)
+        if balance_details["balance"] <= 0:
+            raise ValueError(
+                "Cannot create expense with this credit card - no available balance."
+            )
+
+    data = {
+        "transaction_date": datetime.fromisoformat(transaction_date),
+        "description": description,
+        "amount": amount,
+        "transaction_type": tx_type,
+        "account_id": aid,
+        "category_id": cid,
+        "destination_account_id": did,
+        "transfer_fee": Decimal(str(transfer_fee)) if transfer_fee else Decimal("0"),
+    }
+    tx = prepare_transaction_for_db(data, user.id)
+    tx.receipt_file_id = file_upload.id
+
     db.add(tx)
     try:
         db.commit()

@@ -20,6 +20,7 @@ from app.mcp.tools import (
     create_category_impl,
     create_post_impl,
     create_transaction_impl,
+    create_transaction_from_receipt_impl,
     delete_account_impl,
     delete_category_impl,
     delete_file_impl,
@@ -247,6 +248,26 @@ async def create_transaction(
     return await create_transaction_impl(
         transaction_date, description, amount, transaction_type,
         account_id, category_id, destination_account_id, transfer_fee,
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+async def create_transaction_from_receipt(
+    base64_image: str,
+    media_type: str,
+    transaction_date: str,
+    description: str,
+    amount: float,
+    transaction_type: str,
+    account_id: str,
+    category_id: Optional[str] = None,
+    destination_account_id: Optional[str] = None,
+    transfer_fee: Optional[float] = None,
+) -> dict:
+    """Create a transaction with a receipt image. Use when the user sends a receipt/photo and wants to record it as a transaction. base64_image: raw base64 (no data: prefix). media_type: e.g. image/jpeg. transaction_type: income|expense|transfer. transaction_date: ISO 8601 with time."""
+    return await create_transaction_from_receipt_impl(
+        base64_image, media_type, transaction_date, description, amount,
+        transaction_type, account_id, category_id, destination_account_id, transfer_fee,
     )
 
 
