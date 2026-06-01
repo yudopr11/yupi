@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Any, Optional
 from datetime import datetime
 from uuid import UUID
@@ -11,8 +11,14 @@ class ImageBlock(BaseModel):
 
 class ChatRequest(BaseModel):
     conversation_id: Optional[UUID] = None
-    message: str = Field(..., min_length=1, max_length=10000)
+    message: str = Field("", min_length=0, max_length=10000)
     images: Optional[list[ImageBlock]] = None
+
+    @model_validator(mode="after")
+    def require_message_or_images(self):
+        if not self.message and not self.images:
+            raise ValueError("Either message or images must be provided")
+        return self
 
 
 class ToolCallResponse(BaseModel):

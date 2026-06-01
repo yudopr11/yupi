@@ -29,7 +29,17 @@ def test_chat_request_missing_message_raises():
         ChatRequest()
 
 
-def test_chat_request_empty_message_rejected():
+def test_chat_request_empty_message_with_images_accepted():
+    from app.schemas.chat import ChatRequest, ImageBlock
+    schema = ChatRequest(
+        message="",
+        images=[ImageBlock(media_type="image/png", data="base64data")],
+    )
+    assert schema.message == ""
+    assert len(schema.images) == 1
+
+
+def test_chat_request_empty_message_without_images_rejected():
     from app.schemas.chat import ChatRequest
     with pytest.raises(ValidationError):
         ChatRequest(message="")

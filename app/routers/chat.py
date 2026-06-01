@@ -170,7 +170,8 @@ async def chat(
 
     # Update title from first message
     if conv.title == "New Chat":
-        conv.title = body.message[:80] + ("..." if len(body.message) > 80 else "")
+        title_src = body.message[:80] if body.message else "Image"
+        conv.title = title_src + ("..." if len(title_src) >= 80 else "")
         try:
             db.commit()
         except IntegrityError:
