@@ -405,7 +405,17 @@ def get_filtered_transactions(
             start_date, end_date = calculate_date_range(date_filter_type, timezone)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    
+    elif start_date or end_date:
+        # Explicit dates from frontend are in user's timezone — convert to UTC
+        try:
+            tz = ZoneInfo(timezone)
+        except ZoneInfoNotFoundError:
+            raise HTTPException(status_code=400, detail=f"Invalid timezone: '{timezone}'")
+        if start_date and start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=tz).astimezone(UTC)
+        if end_date and end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=tz).astimezone(UTC)
+
     if start_date:
         query = query.filter(Transaction.transaction_date >= start_date)
     if end_date:
