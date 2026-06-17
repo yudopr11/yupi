@@ -268,7 +268,7 @@ python-dotenv==1.2.2
     #   pydantic-settings
     #   uvicorn
     #   yupi
-python-multipart==0.0.27
+python-multipart==0.0.31
     # via
     #   fastapi
     #   mcp
