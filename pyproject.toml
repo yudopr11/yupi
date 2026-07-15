@@ -5,7 +5,7 @@ description = "yudopr api"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aiosmtplib>=5.0.0",
+    "aiosmtplib>=5.1.1",
     "alembic==1.15.2",
     "annotated-types==0.7.0",
     "anyio==4.9.0",
