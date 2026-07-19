@@ -183,7 +183,7 @@ markupsafe==3.0.2
     #   jinja2
     #   mako
     #   yupi
-mcp==1.27.1
+mcp==1.28.1
     # via yupi
 mdurl==0.1.2
     # via
